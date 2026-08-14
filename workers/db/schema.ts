@@ -37,7 +37,7 @@ export const emails = sqliteTable("emails", {
 	idxSourceMessage: uniqueIndex("idx_emails_source_message").on(table.source, table.source_message_id),
 	idxRfcMessage: uniqueIndex("idx_emails_rfc_message").on(table.rfc_message_id),
 	idxIdempotency: uniqueIndex("idx_emails_idempotency").on(table.idempotency_key),
-});
+}));
 
 export const attachments = sqliteTable("attachments", {
 	id: text("id").primaryKey(),
