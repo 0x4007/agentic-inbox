@@ -18,7 +18,7 @@ import {
 } from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useParams } from "react-router";
+import { useParams, useSearchParams } from "react-router";
 import { Folders } from "shared/folders";
 import { formatListDate } from "shared/dates";
 import MailboxSplitView from "~/components/MailboxSplitView";
@@ -27,6 +27,7 @@ import {
 	useDeleteEmail,
 	useEmails,
 	useMarkThreadRead,
+	useThreadReplies,
 	useUpdateEmail,
 } from "~/queries/emails";
 import { useFolders } from "~/queries/folders";
@@ -145,6 +146,8 @@ export default function EmailListRoute() {
 		mailboxId: string;
 		folder: string;
 	}>();
+	const [searchParams] = useSearchParams();
+	const requestedThreadId = searchParams.get("thread");
 	const {
 		selectedEmailId,
 		isComposing,
@@ -172,6 +175,10 @@ export default function EmailListRoute() {
 		data: emailData,
 		isFetching: isRefreshing,
 	} = useEmails(mailboxId, params, { refetchInterval: 30_000 });
+	const { data: requestedThreadMessages } = useThreadReplies(
+		mailboxId,
+		requestedThreadId,
+	);
 
 	const emails = emailData?.emails ?? [];
 	const totalCount = emailData?.totalCount ?? 0;
@@ -188,6 +195,7 @@ export default function EmailListRoute() {
 
 	// Track folder identity to detect folder changes vs page changes
 	const prevFolderRef = useRef<string | undefined>(undefined);
+	const openedThreadRef = useRef<string | null>(null);
 
 	useEffect(() => {
 		const folderChanged = prevFolderRef.current !== `${mailboxId}/${folder}`;
@@ -198,6 +206,30 @@ export default function EmailListRoute() {
 			setPage(1);
 		}
 	}, [mailboxId, folder, closePanel]);
+
+	// The activation page opens the canonical imported thread using its stable
+	// thread ID. `useThreadReplies` also primes the email-detail cache used by
+	// EmailPanel, so this does not add a second request for the selected message.
+	useEffect(() => {
+		if (!requestedThreadId) {
+			openedThreadRef.current = null;
+			return;
+		}
+		if (
+			openedThreadRef.current === requestedThreadId ||
+			!requestedThreadMessages?.length
+		) {
+			return;
+		}
+
+		const latestMessage = [...requestedThreadMessages].sort(
+			(a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+		)[0];
+		if (!latestMessage) return;
+
+		openedThreadRef.current = requestedThreadId;
+		selectEmail(latestMessage.id);
+	}, [requestedThreadId, requestedThreadMessages, selectEmail]);
 
 	const toggleStar = (e: React.MouseEvent, email: Email) => {
 		e.preventDefault();
