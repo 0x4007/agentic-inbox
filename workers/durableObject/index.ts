@@ -136,42 +136,22 @@ export class MailboxDO extends DurableObject<Env> {
 
 		const offset = (page - 1) * limit;
 
-		const conditions: SQL[] = [];
+		const conditions: string[] = [];
+		const params: (string | number)[] = [];
 		if (folder) {
-			conditions.push(
-				sql`${schema.emails.folder_id} = (SELECT id FROM folders WHERE name = ${folder} OR id = ${folder} LIMIT 1)`,
-			);
+			conditions.push("folder_id = (SELECT id FROM folders WHERE name = ?1 OR id = ?1 LIMIT 1)");
+			params.push(folder);
 		}
 		if (thread_id) {
-			conditions.push(eq(schema.emails.thread_id, thread_id));
+			conditions.push(`thread_id = ?${params.length + 1}`);
+			params.push(thread_id);
 		}
-
-		const orderCol = SORT_COLUMN_MAP[sortColumn];
-		const orderDir = sortDirection === "ASC" ? asc(orderCol) : desc(orderCol);
-
-		const result = this.db
-			.select({
-				id: schema.emails.id,
-				subject: schema.emails.subject,
-				sender: schema.emails.sender,
-				recipient: schema.emails.recipient,
-				cc: schema.emails.cc,
-				bcc: schema.emails.bcc,
-				date: schema.emails.date,
-				read: schema.emails.read,
-				starred: schema.emails.starred,
-				in_reply_to: schema.emails.in_reply_to,
-				email_references: schema.emails.email_references,
-				thread_id: schema.emails.thread_id,
-				folder_id: schema.emails.folder_id,
-				snippet: sql<string>`SUBSTR(${schema.emails.body}, 1, 300)`,
-			})
-			.from(schema.emails)
-			.where(conditions.length > 0 ? and(...conditions) : undefined)
-			.orderBy(orderDir)
-			.limit(limit)
-			.offset(offset)
-			.all();
+		const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+		params.push(limit, offset);
+		const result = [...this.ctx.storage.sql.exec(
+			`SELECT id, subject, sender, recipient, cc, bcc, date, read, starred, in_reply_to, email_references, thread_id, folder_id, SUBSTR(body, 1, 300) AS snippet FROM emails ${where} ORDER BY ${sortColumn} ${sortDirection === "ASC" ? "ASC" : "DESC"} LIMIT ?${params.length - 1} OFFSET ?${params.length}`,
+			...params,
+		)] as unknown as EmailData[];
 
 		return result.map((email) => ({
 			...email,
