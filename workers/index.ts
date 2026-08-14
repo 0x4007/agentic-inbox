@@ -375,11 +375,12 @@ async function receiveEmail(event: { raw: ReadableStream; rawSize: number }, env
 		if (!mailboxId) { console.log(`Ignoring email: no recipient matches EMAIL_ADDRESSES.`); return; }
 	} else { mailboxId = allRecipients[0]; }
 	if (!mailboxId) throw new Error("received email with no valid recipient address");
+	const logicalMailboxId = mailboxId.endsWith("@pavlovcik.com") ? "pavlovcik.com" : mailboxId;
 
 	const messageId = crypto.randomUUID();
-	if (!(await env.BUCKET.head(`mailboxes/${mailboxId}.json`))) { console.log(`Ignoring email for ${mailboxId}: mailbox does not exist`); return; }
+	if (!(await env.BUCKET.head(`mailboxes/${logicalMailboxId}.json`))) { console.log(`Ignoring email for ${logicalMailboxId}: mailbox does not exist`); return; }
 
-	const stub = env.MAILBOX.get(env.MAILBOX.idFromName(mailboxId));
+	const stub = env.MAILBOX.get(env.MAILBOX.idFromName(logicalMailboxId));
 
 	const attachmentData: StoredAttachment[] = [];
 	if (parsedEmail.attachments) {
@@ -423,7 +424,7 @@ async function receiveEmail(event: { raw: ReadableStream; rawSize: number }, env
 		text: parsedEmail.text || (parsedEmail.html ? parsedEmail.html.replace(/<[^>]+>/g, " ") : ""),
 	}).catch((e) => console.error("Gmail forwarding failed:", (e as Error).message)));
 
-	ctx.waitUntil(triggerInboundAutomation(env, { messageId }, mailboxId)
+	ctx.waitUntil(triggerInboundAutomation(env, { messageId }, logicalMailboxId)
 		.catch((e) => console.error("Thread automation failed closed:", (e as Error).message)));
 }
 
