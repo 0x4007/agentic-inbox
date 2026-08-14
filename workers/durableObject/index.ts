@@ -909,8 +909,11 @@ export class MailboxDO extends DurableObject<Env> {
 		try {
 			this.ctx.storage.sql.exec(`INSERT INTO processing_receipts (message_id, thread_id, status, claimed_at, updated_at) VALUES (?1, ?2, 'pending', ?3, ?3)`, messageId, threadId, now);
 			return true;
-		} catch {
-			return false;
+		} catch (error) {
+			if (error instanceof Error && /unique|constraint/i.test(error.message)) {
+				return false;
+			}
+			throw error;
 		}
 	}
 

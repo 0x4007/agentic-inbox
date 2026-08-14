@@ -358,7 +358,13 @@ async function streamToArrayBuffer(stream: ReadableStream, streamSize: number) {
 	return result;
 }
 
-async function receiveEmail(event: { raw: ReadableStream; rawSize: number }, env: Env, ctx: ExecutionContext) {
+interface IncomingEmailEvent {
+	raw: ReadableStream;
+	rawSize: number;
+	forward?: (recipient: string, headers?: Headers) => Promise<{ messageId: string }>;
+}
+
+async function receiveEmail(event: IncomingEmailEvent, env: Env, ctx: ExecutionContext) {
 	const rawEmail = await streamToArrayBuffer(event.raw, event.rawSize);
 	const parsedEmail = await new PostalMime().parse(rawEmail);
 
@@ -416,13 +422,18 @@ async function receiveEmail(event: { raw: ReadableStream; rawSize: number }, env
 		thread_id: threadId, message_id: originalMessageId, raw_headers: JSON.stringify(parsedEmail.headers),
 	}, attachmentData);
 
-	// Preserve the ordinary Gmail copy independently from agent generation.
-	ctx.waitUntil(sendEmail(env.EMAIL, {
-		to: "pavlovcik+cloudflare@gmail.com",
-		from: mailboxId,
-		subject: parsedEmail.subject || "",
-		text: parsedEmail.text || (parsedEmail.html ? parsedEmail.html.replace(/<[^>]+>/g, " ") : ""),
-	}).catch((e) => console.error("Gmail forwarding failed:", (e as Error).message)));
+	// Preserve the original MIME message independently from agent generation.
+	// Cloudflare's production email event exposes forward(); local fixtures may
+	// only expose raw MIME, so retain a parsed fallback for that environment.
+	const forwarding = typeof event.forward === "function"
+		? event.forward("pavlovcik+cloudflare@gmail.com")
+		: sendEmail(env.EMAIL, {
+			to: "pavlovcik+cloudflare@gmail.com",
+			from: mailboxId,
+			subject: parsedEmail.subject || "",
+			text: parsedEmail.text || (parsedEmail.html ? parsedEmail.html.replace(/<[^>]+>/g, " ") : ""),
+		});
+	ctx.waitUntil(forwarding.catch((e) => console.error("Gmail forwarding failed:", (e as Error).message)));
 
 	ctx.waitUntil(triggerInboundAutomation(env, { messageId }, logicalMailboxId)
 		.catch((e) => console.error("Thread automation failed closed:", (e as Error).message)));
