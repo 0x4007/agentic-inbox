@@ -362,7 +362,20 @@ async function streamToArrayBuffer(stream: ReadableStream, streamSize: number) {
 interface IncomingEmailEvent {
 	raw: ReadableStream;
 	rawSize: number;
+	from?: string;
+	to?: string;
 	forward?: (recipient: string, headers?: Headers) => Promise<{ messageId: string }>;
+}
+
+async function sha256Hex(value: Uint8Array): Promise<string> {
+	const digest = await crypto.subtle.digest("SHA-256", value as unknown as BufferSource);
+	return [...new Uint8Array(digest)]
+		.map((byte) => byte.toString(16).padStart(2, "0"))
+		.join("");
+}
+
+function isUniqueConstraint(error: unknown): boolean {
+	return error instanceof Error && /unique|constraint/i.test(error.message);
 }
 
 async function receiveEmail(event: IncomingEmailEvent, env: Env, ctx: ExecutionContext) {
@@ -372,7 +385,9 @@ async function receiveEmail(event: IncomingEmailEvent, env: Env, ctx: ExecutionC
 	if (!parsedEmail.to?.length || !parsedEmail.to[0].address) throw new Error("received email with empty to");
 
 	const allowedAddresses = ((env.EMAIL_ADDRESSES ?? []) as string[]).map((a) => a.toLowerCase());
-	const allRecipients = parsedEmail.to.map((t) => t.address?.toLowerCase()).filter(Boolean) as string[];
+	const envelopeRecipient = event.to?.trim().toLowerCase() || "";
+	const parsedRecipients = parsedEmail.to.map((t) => t.address?.toLowerCase()).filter(Boolean) as string[];
+	const allRecipients = [...new Set([envelopeRecipient, ...parsedRecipients].filter(Boolean))];
 	const ccRecipients = (parsedEmail.cc || []).map((e) => e.address?.toLowerCase()).filter(Boolean) as string[];
 	const bccRecipients = (parsedEmail.bcc || []).map((e) => e.address?.toLowerCase()).filter(Boolean) as string[];
 
@@ -380,7 +395,7 @@ async function receiveEmail(event: IncomingEmailEvent, env: Env, ctx: ExecutionC
 	if (allowedAddresses.length > 0) {
 		mailboxId = allRecipients.find((addr) => allowedAddresses.includes(addr));
 		if (!mailboxId) { console.log(`Ignoring email: no recipient matches EMAIL_ADDRESSES.`); return; }
-	} else { mailboxId = allRecipients[0]; }
+	} else { mailboxId = envelopeRecipient || allRecipients[0]; }
 	if (!mailboxId) throw new Error("received email with no valid recipient address");
 	const logicalMailboxId = mailboxId.endsWith("@pavlovcik.com") ? "pavlovcik.com" : mailboxId;
 
@@ -388,6 +403,21 @@ async function receiveEmail(event: IncomingEmailEvent, env: Env, ctx: ExecutionC
 	if (!(await env.BUCKET.head(`mailboxes/${logicalMailboxId}.json`))) { console.log(`Ignoring email for ${logicalMailboxId}: mailbox does not exist`); return; }
 
 	const stub = env.MAILBOX.get(env.MAILBOX.idFromName(logicalMailboxId));
+	const extractMsgId = (s: string) => { const m = s.match(/<([^>]+)>/); return m ? m[1] : s.trim().split(/\s+/)[0]; };
+	const inReplyTo = parsedEmail.inReplyTo ? extractMsgId(parsedEmail.inReplyTo) : null;
+	const emailReferences = parsedEmail.references
+		? [...new Set(parsedEmail.references.split(/\s+/).filter(Boolean).map(extractMsgId))]
+		: [];
+	const originalMessageId = parsedEmail.messageId ? extractMsgId(parsedEmail.messageId) : null;
+	const sourceMessageId = originalMessageId ?? `sha256:${await sha256Hex(rawEmail)}`;
+	const idempotencyKey = `cloudflare:${sourceMessageId}`;
+	const existing = await stub.findEmailByIdentity({
+		source: "cloudflare",
+		sourceMessageId,
+		rfcMessageId: originalMessageId,
+		idempotencyKey,
+	});
+	if (existing) return;
 
 	const attachmentData: StoredAttachment[] = [];
 	if (parsedEmail.attachments) {
@@ -401,27 +431,43 @@ async function receiveEmail(event: IncomingEmailEvent, env: Env, ctx: ExecutionC
 		}
 	}
 
-	const extractMsgId = (s: string) => { const m = s.match(/<([^>]+)>/); return m ? m[1] : s.trim().split(/\s+/)[0]; };
-	const inReplyTo = parsedEmail.inReplyTo ? extractMsgId(parsedEmail.inReplyTo) : null;
-	const emailReferences = parsedEmail.references ? parsedEmail.references.split(/\s+/).filter(Boolean).map(extractMsgId) : [];
-	let threadId = emailReferences[0] || inReplyTo || messageId;
+	let threadId = messageId;
 
-	if (!inReplyTo && emailReferences.length === 0) {
+	if (inReplyTo || emailReferences.length > 0) {
+		const matchedThread = await (stub as any).findThreadByRfcReferences([
+			inReplyTo,
+			...emailReferences,
+		].filter(Boolean));
+		if (matchedThread) threadId = matchedThread;
+	} else {
 		const subjectThread = await (stub as any).findThreadBySubject(parsedEmail.subject || "", parsedEmail.from?.address || undefined);
 		if (subjectThread) threadId = subjectThread;
 	}
 
-	const originalMessageId = parsedEmail.messageId ? extractMsgId(parsedEmail.messageId) : null;
-
-	await stub.createEmail(Folders.INBOX, {
+	const sender = (event.from?.trim() || parsedEmail.from?.address || "").toLowerCase();
+	const recipient = envelopeRecipient || allRecipients.join(", ");
+	try {
+		await stub.createEmail(Folders.INBOX, {
 		id: messageId, subject: parsedEmail.subject || "",
-		sender: (parsedEmail.from?.address || "").toLowerCase(), recipient: allRecipients.join(", "),
+		sender, recipient,
 		cc: ccRecipients.join(", ") || null, bcc: bccRecipients.join(", ") || null,
 		date: new Date().toISOString(), // uses receive time, not the email's Date header
 		body: parsedEmail.html || parsedEmail.text || "",
 		in_reply_to: inReplyTo, email_references: emailReferences.length > 0 ? JSON.stringify(emailReferences) : null,
 		thread_id: threadId, message_id: originalMessageId, raw_headers: JSON.stringify(parsedEmail.headers),
-	}, attachmentData);
+		source: "cloudflare", source_message_id: sourceMessageId,
+		rfc_message_id: originalMessageId, idempotency_key: idempotencyKey,
+		}, attachmentData);
+	} catch (error) {
+		if (!isUniqueConstraint(error)) throw error;
+		for (const attachment of attachmentData) {
+			await env.BUCKET.delete(`attachments/${messageId}/${attachment.id}/${attachment.filename}`);
+		}
+		// A concurrent Cloudflare retry won the identity claim. Treat this event
+		// as already handled instead of forwarding or generating a second reply.
+		if (await stub.findEmailByIdentity({ source: "cloudflare", sourceMessageId, rfcMessageId: originalMessageId, idempotencyKey })) return;
+		throw error;
+	}
 
 	// Preserve the original MIME message independently from agent generation.
 	// Cloudflare's production email event exposes forward(); local fixtures may
@@ -430,7 +476,7 @@ async function receiveEmail(event: IncomingEmailEvent, env: Env, ctx: ExecutionC
 		? event.forward("pavlovcik+cloudflare@gmail.com")
 		: sendEmail(env.EMAIL, {
 			to: "pavlovcik+cloudflare@gmail.com",
-			from: mailboxId,
+			from: sender || mailboxId,
 			subject: parsedEmail.subject || "",
 			text: parsedEmail.text || (parsedEmail.html ? parsedEmail.html.replace(/<[^>]+>/g, " ") : ""),
 		});

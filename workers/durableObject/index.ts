@@ -926,9 +926,23 @@ export class MailboxDO extends DurableObject<Env> {
 		if (!inbound) return null;
 		const refs = [inbound.in_reply_to, ...(inbound.email_references ? (() => { try { return JSON.parse(inbound.email_references) as string[]; } catch { return []; } })() : [])].filter(Boolean) as string[];
 		if (refs.length === 0) return null;
+		return this.findThreadByRfcReferences(refs);
+	}
+
+	/** Find the one local thread referenced by RFC reply headers. */
+	async findThreadByRfcReferences(references: string[]): Promise<string | null> {
+		const refs = [...new Set(references.map((reference) => reference.trim()).filter(Boolean))];
+		if (refs.length === 0) return null;
 		const placeholders = refs.map(() => "?").join(",");
-		const match = [...this.ctx.storage.sql.exec(`SELECT thread_id FROM emails WHERE rfc_message_id IN (${placeholders}) OR message_id IN (${placeholders}) ORDER BY date ASC LIMIT 1`, ...refs, ...refs)][0] as { thread_id?: string } | undefined;
-		return match?.thread_id ?? inbound.thread_id ?? null;
+		const match = [...this.ctx.storage.sql.exec(
+			`SELECT thread_id FROM emails
+			 WHERE thread_id IS NOT NULL
+			   AND (rfc_message_id IN (${placeholders}) OR message_id IN (${placeholders}))
+			 ORDER BY date ASC LIMIT 1`,
+			...refs,
+			...refs,
+		)][0] as { thread_id?: string | null } | undefined;
+		return match?.thread_id ?? null;
 	}
 
 	async finalizeProcessing(messageId: string, threadId: string, status: "drafted" | "sent" | "failed", action: "drafted" | "sent" | "failed", error?: string | null) {
