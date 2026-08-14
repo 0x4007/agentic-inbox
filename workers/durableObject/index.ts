@@ -877,4 +877,63 @@ export class MailboxDO extends DurableObject<Env> {
 			this.db.insert(schema.attachments).values(attachments).run();
 		}
 	}
+
+	/** Coordinator-owned persistence RPCs used by the Gmail and automation modules. */
+	async findEmailByIdentity(identity: { source?: string; sourceMessageId?: string | null; rfcMessageId?: string | null; idempotencyKey?: string | null }) {
+		const row = [...this.ctx.storage.sql.exec(
+			`SELECT * FROM emails WHERE (source = ?1 AND source_message_id = ?2)
+			 OR (?3 IS NOT NULL AND rfc_message_id = ?3)
+			 OR (?4 IS NOT NULL AND idempotency_key = ?4) LIMIT 1`,
+			identity.source ?? "cloudflare", identity.sourceMessageId ?? null,
+			identity.rfcMessageId ?? null, identity.idempotencyKey ?? null,
+		)][0];
+		return row ?? null;
+	}
+
+	async getThreadAutomation(threadId: string) {
+		return ([...this.ctx.storage.sql.exec("SELECT * FROM thread_automation WHERE thread_id = ?1", threadId)][0] ?? null) as Record<string, unknown> | null;
+	}
+
+	async upsertThreadAutomation(input: { threadId: string; gmailThreadId?: string | null; enabled: boolean; mode: "draft" | "auto"; goalPrompt: string; privateNotes: string }) {
+		const now = new Date().toISOString();
+		this.ctx.storage.sql.exec(`INSERT INTO thread_automation (thread_id, gmail_thread_id, enabled, mode, goal_prompt, private_notes, last_action, created_at, updated_at)
+			VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'none', ?7, ?7)
+			ON CONFLICT(thread_id) DO UPDATE SET gmail_thread_id=excluded.gmail_thread_id, enabled=excluded.enabled, mode=excluded.mode,
+			goal_prompt=excluded.goal_prompt, private_notes=excluded.private_notes, updated_at=excluded.updated_at`,
+			input.threadId, input.gmailThreadId ?? null, input.enabled ? 1 : 0, input.mode, input.goalPrompt, input.privateNotes, now);
+		return this.getThreadAutomation(input.threadId);
+	}
+
+	async claimProcessingReceipt(messageId: string, threadId: string) {
+		const now = new Date().toISOString();
+		try {
+			this.ctx.storage.sql.exec(`INSERT INTO processing_receipts (message_id, thread_id, status, claimed_at, updated_at) VALUES (?1, ?2, 'pending', ?3, ?3)`, messageId, threadId, now);
+			return true;
+		} catch {
+			return false;
+		}
+	}
+
+	async updateProcessingReceipt(messageId: string, status: "pending" | "drafted" | "sending" | "sent" | "failed", error?: string | null) {
+		this.ctx.storage.sql.exec("UPDATE processing_receipts SET status = ?2, error = ?3, updated_at = ?4 WHERE message_id = ?1", messageId, status, error ?? null, new Date().toISOString());
+	}
+
+	async saveGmailOAuthState(state: { state: string; codeVerifier: string; redirectUri: string; returnPath: string; expiresAt: string }) {
+		this.ctx.storage.sql.exec("INSERT OR REPLACE INTO gmail_oauth_state (state, code_verifier, redirect_uri, return_path, expires_at) VALUES (?1, ?2, ?3, ?4, ?5)", state.state, state.codeVerifier, state.redirectUri, state.returnPath, state.expiresAt);
+	}
+
+	async consumeGmailOAuthState(state: string) {
+		const row = [...this.ctx.storage.sql.exec("SELECT * FROM gmail_oauth_state WHERE state = ?1 AND expires_at > ?2", state, new Date().toISOString())][0] as Record<string, string> | undefined;
+		if (row) this.ctx.storage.sql.exec("DELETE FROM gmail_oauth_state WHERE state = ?1", state);
+		return row ?? null;
+	}
+
+	async saveGmailCredentials(credentials: { id: string; accountEmail: string; encryptedRefreshToken: string; scope: string }) {
+		const now = new Date().toISOString();
+		this.ctx.storage.sql.exec("INSERT OR REPLACE INTO gmail_credentials (id, account_email, encrypted_refresh_token, scope, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, COALESCE((SELECT created_at FROM gmail_credentials WHERE id = ?1), ?5), ?5)", credentials.id, credentials.accountEmail, credentials.encryptedRefreshToken, credentials.scope, now);
+	}
+
+	async getGmailCredentials(id = "primary") {
+		return ([...this.ctx.storage.sql.exec("SELECT id, account_email, scope, created_at, updated_at FROM gmail_credentials WHERE id = ?1", id)][0] ?? null) as Record<string, unknown> | null;
+	}
 }
