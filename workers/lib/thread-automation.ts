@@ -247,6 +247,7 @@ function safelyReportedError(error: unknown): string {
 		switch (error.kind) {
 			case "configuration": return "AI generation is not configured.";
 			case "timeout": return "AI generation timed out.";
+			case "http": return error.message;
 			case "malformed": return "AI generation returned an invalid reply.";
 			default: return "AI generation failed before a reply was created.";
 		}
