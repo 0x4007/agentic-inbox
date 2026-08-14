@@ -348,7 +348,7 @@ export class B2ObjectStore implements ObjectStore {
 		this.prefix = B2_STORAGE_PREFIX;
 		this.accessKeyId = options.accessKeyId;
 		this.secretAccessKey = options.secretAccessKey;
-		this.fetcher = options.fetcher ?? fetch;
+		this.fetcher = options.fetcher ?? ((input, init) => fetch(input, init));
 		this.now = options.now ?? (() => new Date());
 
 		if (!this.bucket || !this.region || !this.accessKeyId || !this.secretAccessKey) {
