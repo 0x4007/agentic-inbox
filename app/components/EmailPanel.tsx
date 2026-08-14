@@ -10,6 +10,7 @@ import EmailPanelDialogs from "~/components/email-panel/EmailPanelDialogs";
 import EmailPanelHeader from "~/components/email-panel/EmailPanelHeader";
 import EmailPanelToolbar from "~/components/email-panel/EmailPanelToolbar";
 import SingleMessageView from "~/components/email-panel/SingleMessageView";
+import ThreadAutomationPanel from "~/components/ThreadAutomationPanel";
 import ThreadMessage from "~/components/email-panel/ThreadMessage";
 import { splitEmailList, toEmailListValue } from "~/lib/utils";
 import api from "~/services/api";
@@ -140,89 +141,92 @@ export default function EmailPanel({ emailId }: { emailId: string }) {
 	const hasThread = allMessages.length > 1;
 
 	return (
-		<div className="flex flex-col h-full">
-			<EmailPanelToolbar
-				email={email}
-				mailboxId={mailboxId}
-				isDraftFolder={isDraftFolder}
-				isSending={isSending}
-				moveToFolders={moveToFolders}
-				onBack={closePanel}
-				onSendDraft={() => handleSendDraft()}
-				onEditDraft={() => handleEditDraft()}
-				onReply={() =>
-					startCompose({ mode: "reply", originalEmail: lastReceivedMessage })
-				}
-				onReplyAll={() =>
-					startCompose({
-						mode: "reply-all",
-						originalEmail: lastReceivedMessage,
-					})
-				}
-				onForward={() => startCompose({ mode: "forward", originalEmail: email })}
-				onToggleStar={toggleStar}
-				onToggleRead={() => {
-					if (mailboxId) {
-						updateEmail.mutate({
-							mailboxId,
-							id: email.id,
-							data: { read: !email.read },
-						});
+		<div className="flex h-full min-w-0 flex-col xl:flex-row" data-thread-detail>
+			{email.thread_id && <ThreadAutomationPanel threadId={email.thread_id} />}
+			<div className="flex min-h-0 min-w-0 flex-1 flex-col">
+				<EmailPanelToolbar
+					email={email}
+					mailboxId={mailboxId}
+					isDraftFolder={isDraftFolder}
+					isSending={isSending}
+					moveToFolders={moveToFolders}
+					onBack={closePanel}
+					onSendDraft={() => handleSendDraft()}
+					onEditDraft={() => handleEditDraft()}
+					onReply={() =>
+						startCompose({ mode: "reply", originalEmail: lastReceivedMessage })
 					}
-				}}
-				onMove={handleMove}
-				onViewSource={() => setSourceViewEmail(email)}
-				onDelete={handleDelete}
-			/>
-
-			<EmailPanelHeader
-				subject={email.subject}
-				messageCount={allMessages.length}
-				showThreadCount={hasThread}
-			/>
-
-			<div className="flex-1 overflow-y-auto">
-				{hasThread ? (
-					allMessages.map((msg, idx) => {
-						const isDraft = draftMessageIds.has(msg.id);
-						return (
-							<ThreadMessage
-								key={msg.id}
-								email={msg}
-								mailboxId={mailboxId}
-								mailboxEmail={currentMailbox?.email}
-								isLast={idx === allMessages.length - 1}
-								isDraft={isDraft}
-								isSending={isDraft ? isSending : false}
-								isExpanded={expandedMessages.has(msg.id)}
-								onToggleExpand={() => toggleExpand(msg.id)}
-								onSendDraft={isDraft ? () => handleSendDraft(msg) : undefined}
-								onEditDraft={isDraft ? () => handleEditDraft(msg) : undefined}
-								onDeleteDraft={isDraft ? () => handleDeleteDraft(msg) : undefined}
-								onViewSource={() => setSourceViewEmail(msg)}
-								onPreviewImage={(url, filename) =>
-									setPreviewImage({ url, filename })
-								}
-							/>
-						);
-					})
-				) : (
-					<SingleMessageView
-						email={email}
-						mailboxId={mailboxId}
-						onPreviewImage={(url, filename) =>
-							setPreviewImage({ url, filename })
+					onReplyAll={() =>
+						startCompose({
+							mode: "reply-all",
+							originalEmail: lastReceivedMessage,
+						})
+					}
+					onForward={() => startCompose({ mode: "forward", originalEmail: email })}
+					onToggleStar={toggleStar}
+					onToggleRead={() => {
+						if (mailboxId) {
+							updateEmail.mutate({
+								mailboxId,
+								id: email.id,
+								data: { read: !email.read },
+							});
 						}
-					/>
-				)}
-			</div>
+					}}
+					onMove={handleMove}
+					onViewSource={() => setSourceViewEmail(email)}
+					onDelete={handleDelete}
+				/>
 
-			<EmailPanelDialogs
-				sourceViewEmail={sourceViewEmail}
-				previewImage={previewImage}
-				onCloseSource={() => setSourceViewEmail(null)}
-				onClosePreview={() => setPreviewImage(null)}
-			/>
+				<EmailPanelHeader
+					subject={email.subject}
+					messageCount={allMessages.length}
+					showThreadCount={hasThread}
+				/>
+
+				<div className="min-h-0 flex-1 overflow-y-auto">
+					{hasThread ? (
+						allMessages.map((msg, idx) => {
+							const isDraft = draftMessageIds.has(msg.id);
+							return (
+								<ThreadMessage
+									key={msg.id}
+									email={msg}
+									mailboxId={mailboxId}
+									mailboxEmail={currentMailbox?.email}
+									isLast={idx === allMessages.length - 1}
+									isDraft={isDraft}
+									isSending={isDraft ? isSending : false}
+									isExpanded={expandedMessages.has(msg.id)}
+									onToggleExpand={() => toggleExpand(msg.id)}
+									onSendDraft={isDraft ? () => handleSendDraft(msg) : undefined}
+									onEditDraft={isDraft ? () => handleEditDraft(msg) : undefined}
+									onDeleteDraft={isDraft ? () => handleDeleteDraft(msg) : undefined}
+									onViewSource={() => setSourceViewEmail(msg)}
+									onPreviewImage={(url, filename) =>
+										setPreviewImage({ url, filename })
+									}
+								/>
+							);
+						})
+					) : (
+						<SingleMessageView
+							email={email}
+							mailboxId={mailboxId}
+							onPreviewImage={(url, filename) =>
+								setPreviewImage({ url, filename })
+							}
+						/>
+					)}
+				</div>
+
+				<EmailPanelDialogs
+					sourceViewEmail={sourceViewEmail}
+					previewImage={previewImage}
+					onCloseSource={() => setSourceViewEmail(null)}
+					onClosePreview={() => setPreviewImage(null)}
+				/>
+			</div>
 		</div>
 	);
 }

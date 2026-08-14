@@ -64,3 +64,37 @@ export interface Folder {
 	name: string;
 	unreadCount: number;
 }
+
+export type AutomationMode = "draft" | "auto";
+
+export type AgentAction = "none" | "drafted" | "sent" | "failed";
+
+export interface ThreadAutomation {
+	threadId: string;
+	gmailThreadId: string | null;
+	enabled: boolean;
+	mode: AutomationMode;
+	goalPrompt: string;
+	privateNotes: string;
+	lastProcessedMessageId: string | null;
+	lastAction: AgentAction;
+	lastError: string | null;
+	createdAt: string;
+	updatedAt: string;
+}
+
+export interface ThreadAutomationUpdate {
+	enabled: boolean;
+	mode: AutomationMode;
+	goalPrompt: string;
+	privateNotes: string;
+}
+
+export interface GmailConnectionStatus {
+	connected: boolean;
+	accountEmail: string | null;
+}
+
+export interface GmailThreadImportResponse {
+	threadId: string;
+}
