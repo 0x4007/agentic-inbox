@@ -22,8 +22,9 @@ import type { Env } from "./types";
 import { requireMailbox, type MailboxContext } from "./lib/mailbox";
 import {
 	gmailStatus, gmailOAuthStart, gmailOAuthCallback, gmailImport,
-	threadAutomation, updateThreadAutomation,
 } from "./routes/gmail-agent";
+import { getThreadAutomation, putThreadAutomation } from "./routes/thread-automation";
+import { triggerInboundAutomation } from "./lib/thread-automation";
 
 type AppContext = Context<MailboxContext>;
 
@@ -92,8 +93,8 @@ app.get("/api/v1/gmail/status", gmailStatus);
 app.get("/api/v1/gmail/oauth/start", gmailOAuthStart);
 app.get("/api/v1/gmail/oauth/callback", gmailOAuthCallback);
 app.post("/api/v1/gmail/threads/import", gmailImport);
-app.get("/api/v1/threads/:threadId/automation", threadAutomation);
-app.put("/api/v1/threads/:threadId/automation", updateThreadAutomation);
+app.get("/api/v1/threads/:threadId/automation", getThreadAutomation);
+app.put("/api/v1/threads/:threadId/automation", putThreadAutomation);
 
 // -- Config ---------------------------------------------------------
 
@@ -414,11 +415,16 @@ async function receiveEmail(event: { raw: ReadableStream; rawSize: number }, env
 		thread_id: threadId, message_id: originalMessageId, raw_headers: JSON.stringify(parsedEmail.headers),
 	}, attachmentData);
 
-	const agentStub = env.EMAIL_AGENT.get(env.EMAIL_AGENT.idFromName(mailboxId));
-	ctx.waitUntil(agentStub.fetch(new Request("https://agents/onNewEmail", {
-		method: "POST", headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({ mailboxId, emailId: messageId, sender: (parsedEmail.from?.address || "").toLowerCase(), subject: parsedEmail.subject || "", threadId }),
-	})).catch((e) => console.error("Auto-draft trigger failed:", (e as Error).message)));
+	// Preserve the ordinary Gmail copy independently from agent generation.
+	ctx.waitUntil(sendEmail(env.EMAIL, {
+		to: "pavlovcik+cloudflare@gmail.com",
+		from: mailboxId,
+		subject: parsedEmail.subject || "",
+		text: parsedEmail.text || (parsedEmail.html ? parsedEmail.html.replace(/<[^>]+>/g, " ") : ""),
+	}).catch((e) => console.error("Gmail forwarding failed:", (e as Error).message)));
+
+	ctx.waitUntil(triggerInboundAutomation(env, { messageId }, mailboxId)
+		.catch((e) => console.error("Thread automation failed closed:", (e as Error).message)));
 }
 
 export { app, receiveEmail };
