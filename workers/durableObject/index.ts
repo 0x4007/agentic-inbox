@@ -87,6 +87,10 @@ interface EmailData {
 	thread_id?: string | null;
 	message_id?: string | null;
 	raw_headers?: string | null;
+	source?: "cloudflare" | "gmail" | "agent";
+	source_message_id?: string | null;
+	rfc_message_id?: string | null;
+	idempotency_key?: string | null;
 }
 
 interface AttachmentData {
@@ -862,6 +866,10 @@ export class MailboxDO extends DurableObject<Env> {
 				thread_id: email.thread_id ?? null,
 				message_id: email.message_id ?? null,
 				raw_headers: email.raw_headers ?? null,
+				source: email.source ?? "cloudflare",
+				source_message_id: email.source_message_id ?? null,
+				rfc_message_id: email.rfc_message_id ?? email.message_id ?? null,
+				idempotency_key: email.idempotency_key ?? null,
 			})
 			.run();
 

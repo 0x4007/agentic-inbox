@@ -166,6 +166,36 @@ export const mailboxMigrations: Migration[] = [
             CREATE INDEX IF NOT EXISTS idx_emails_folder_id ON emails(folder_id);
             CREATE INDEX IF NOT EXISTS idx_emails_date ON emails(date);
             CREATE INDEX IF NOT EXISTS idx_emails_folder_date ON emails(folder_id, date DESC);
+		`,
+	},
+	{
+		name: "9_thread_agent_foundation",
+		sql: `
+            ALTER TABLE emails ADD COLUMN source TEXT NOT NULL DEFAULT 'cloudflare';
+            ALTER TABLE emails ADD COLUMN source_message_id TEXT;
+            ALTER TABLE emails ADD COLUMN rfc_message_id TEXT;
+            ALTER TABLE emails ADD COLUMN idempotency_key TEXT;
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_emails_source_message ON emails(source, source_message_id);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_emails_rfc_message ON emails(rfc_message_id);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_emails_idempotency ON emails(idempotency_key);
+            CREATE TABLE IF NOT EXISTS thread_automation (
+              thread_id TEXT PRIMARY KEY, gmail_thread_id TEXT, enabled INTEGER NOT NULL DEFAULT 0,
+              mode TEXT NOT NULL DEFAULT 'draft', goal_prompt TEXT NOT NULL DEFAULT '', private_notes TEXT NOT NULL DEFAULT '',
+              last_processed_message_id TEXT, last_action TEXT NOT NULL DEFAULT 'none', last_error TEXT,
+              created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS gmail_oauth_state (
+              state TEXT PRIMARY KEY, code_verifier TEXT NOT NULL, redirect_uri TEXT NOT NULL,
+              return_path TEXT NOT NULL, expires_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS gmail_credentials (
+              id TEXT PRIMARY KEY, account_email TEXT NOT NULL, encrypted_refresh_token TEXT NOT NULL,
+              scope TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS processing_receipts (
+              message_id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, status TEXT NOT NULL,
+              claimed_at TEXT NOT NULL, updated_at TEXT NOT NULL, error TEXT
+            );
         `,
 	},
 ];

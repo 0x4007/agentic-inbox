@@ -20,6 +20,10 @@ import { handleReplyEmail, handleForwardEmail } from "./routes/reply-forward";
 import { Folders } from "../shared/folders";
 import type { Env } from "./types";
 import { requireMailbox, type MailboxContext } from "./lib/mailbox";
+import {
+	gmailStatus, gmailOAuthStart, gmailOAuthCallback, gmailImport, gmailActivation,
+	threadAutomation, updateThreadAutomation,
+} from "./routes/gmail-agent";
 
 type AppContext = Context<MailboxContext>;
 
@@ -82,6 +86,15 @@ app.use("/api/*", cors({
 	},
 }));
 app.use("/api/v1/mailboxes/:mailboxId/*", requireMailbox);
+
+// Thread-agent contract routes. Implementations are supplied by isolated modules.
+app.get("/api/v1/gmail/status", gmailStatus);
+app.get("/api/v1/gmail/oauth/start", gmailOAuthStart);
+app.get("/api/v1/gmail/oauth/callback", gmailOAuthCallback);
+app.post("/api/v1/gmail/threads/import", gmailImport);
+app.get("/api/v1/threads/:threadId/automation", threadAutomation);
+app.put("/api/v1/threads/:threadId/automation", updateThreadAutomation);
+app.get("/activate/gmail/:gmailThreadId", gmailActivation);
 
 // -- Config ---------------------------------------------------------
 
