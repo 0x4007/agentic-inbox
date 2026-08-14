@@ -140,7 +140,8 @@ export class AiUosChatClient {
 			if (timedOut) {
 				throw new AiUosError("timeout", "Model generation timed out");
 			}
-			throw new AiUosError("network", "Model generation could not reach the provider");
+			const detail = error instanceof Error ? error.message : String(error);
+			throw new AiUosError("network", `Model generation could not reach the provider: ${detail}`);
 		} finally {
 			clearTimeout(timeout);
 		}
