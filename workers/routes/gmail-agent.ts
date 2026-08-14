@@ -19,6 +19,7 @@ import {
 	encryptRefreshToken,
 	validateGmailReturnPath,
 } from "../lib/gmail-oauth";
+import { getObjectStore } from "../lib/b2-storage";
 import type { Env } from "../types";
 
 export type AgentContext = Context<{ Bindings: Env }>;
@@ -49,6 +50,19 @@ function mailbox(c: AgentContext): GmailMailbox {
 	return c.env.MAILBOX.get(
 		c.env.MAILBOX.idFromName(LOGICAL_MAILBOX_ID),
 	) as unknown as GmailMailbox;
+}
+
+async function ensureLogicalMailbox(c: AgentContext): Promise<void> {
+	const store = getObjectStore(c.env);
+	const key = `mailboxes/${LOGICAL_MAILBOX_ID}.json`;
+	if (await store.head(key)) return;
+
+	await store.put(key, JSON.stringify({
+		fromName: "Pavlovcik Inbox",
+		forwarding: { enabled: false, email: "" },
+		signature: { enabled: false, text: "" },
+		autoReply: { enabled: false, subject: "", message: "" },
+	}));
 }
 
 function gmailConfiguration(c: AgentContext): GmailConfiguration | null {
@@ -261,6 +275,7 @@ export async function gmailImport(c: AgentContext) {
 		return c.json({ error: "Invalid Gmail thread ID" }, 400);
 	}
 
+	await ensureLogicalMailbox(c);
 	const stub = mailbox(c);
 	const credentials = await stub.getGmailCredentialsForUse(GMAIL_CREDENTIAL_ID);
 	const encryptedRefreshToken = stringField(
