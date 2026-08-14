@@ -4,12 +4,13 @@
 
 /**
  * Hono middleware to handle repetitive Mailbox Durable Object instantiation.
- * Checks if the mailbox exists in R2, then instantiates the DO stub
+ * Checks if the mailbox marker exists in object storage, then instantiates the DO stub
  * and attaches it to the Hono context (`c.var.mailboxStub`).
  */
 import { createMiddleware } from "hono/factory";
 import type { MailboxDO } from "../durableObject";
 import type { Env } from "../types";
+import { getObjectStore } from "./b2-storage";
 
 export type MailboxContext = {
 	Bindings: Env;
@@ -25,7 +26,7 @@ export const requireMailbox = createMiddleware<MailboxContext>(async (c, next) =
 
 	// Verify mailbox exists
 	const key = `mailboxes/${mailboxId}.json`;
-	const obj = await c.env.BUCKET.head(key);
+	const obj = await getObjectStore(c.env).head(key);
 	if (!obj) {
 		return c.json({ error: "Not found" }, 404);
 	}

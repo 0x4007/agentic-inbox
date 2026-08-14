@@ -1,3 +1,7 @@
 # Cloudflare Access (required in production). TEAM_DOMAIN may be the base Access URL or the full /cdn-cgi/access/certs URL.
 POLICY_AUD=your-access-policy-audience-tag
 TEAM_DOMAIN=https://your-team.cloudflareaccess.com
+
+# Local-only deterministic fixture storage. Production wrangler configuration
+# pins this to b2 and requires EMAIL_B2_KEY_ID plus EMAIL_B2_APPLICATION_KEY.
+EMAIL_STORAGE_MODE=memory

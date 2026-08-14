@@ -4,9 +4,9 @@
 
 /**
  * Shared attachment storage logic.
- * Eliminates the triplicated atob → Uint8Array → R2.put pattern.
+ * Eliminates the triplicated atob → Uint8Array → object-store put pattern.
  */
-import type { Env } from "../types";
+import type { ObjectStore } from "./b2-storage";
 
 export interface StoredAttachment {
 	id: string;
@@ -19,10 +19,10 @@ export interface StoredAttachment {
 }
 
 /**
- * Store base64-encoded attachments to R2 and return metadata for the DO.
+ * Store base64-encoded attachments and return metadata for the DO.
  */
 export async function storeAttachments(
-	bucket: Env["BUCKET"],
+	store: ObjectStore,
 	emailId: string,
 	attachments?: {
 		content: string;
@@ -37,12 +37,12 @@ export async function storeAttachments(
 	const results: StoredAttachment[] = [];
 	for (const att of attachments) {
 		const attachmentId = crypto.randomUUID();
-		// Sanitize filename to prevent path traversal in R2 keys
+		// Sanitize filename to prevent path traversal in object-store keys.
 		const safeFilename = (att.filename || "untitled").replace(/[\/\\:*?"<>|\x00-\x1f]/g, "_");
 		const key = `attachments/${emailId}/${attachmentId}/${safeFilename}`;
 		const binaryStr = atob(att.content);
 		const bytes = Uint8Array.from(binaryStr, (c) => c.charCodeAt(0));
-		await bucket.put(key, bytes);
+		await store.put(key, bytes);
 		results.push({
 			id: attachmentId,
 			email_id: emailId,
