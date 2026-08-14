@@ -936,4 +936,9 @@ export class MailboxDO extends DurableObject<Env> {
 	async getGmailCredentials(id = "primary") {
 		return ([...this.ctx.storage.sql.exec("SELECT id, account_email, scope, created_at, updated_at FROM gmail_credentials WHERE id = ?1", id)][0] ?? null) as Record<string, unknown> | null;
 	}
+
+	/** Server-only credential lookup; callers must never serialize this result to clients. */
+	async getGmailCredentialsForUse(id = "primary") {
+		return ([...this.ctx.storage.sql.exec("SELECT * FROM gmail_credentials WHERE id = ?1", id)][0] ?? null) as Record<string, unknown> | null;
+	}
 }
