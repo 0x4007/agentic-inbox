@@ -395,6 +395,10 @@ export class InboundAutomationService {
 			await this.#store.finalizeProcessing(inbound.id, threadId, "sent", "sent");
 			return { status: "sent", threadId, replyId: outgoing.email.id };
 		} catch (error) {
+			console.error("Thread automation failed", error instanceof Error ? {
+				name: error.name,
+				message: error.message,
+			} : { error: String(error) });
 			return this.#fail(inbound.id, threadId, safelyReportedError(error));
 		}
 	}
