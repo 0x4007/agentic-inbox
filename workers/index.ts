@@ -31,7 +31,8 @@ type AppContext = Context<MailboxContext>;
 // -- Request body schemas (kept for validation) ---------------------
 
 const CreateMailboxBody = z.object({
-	email: z.string().email(),
+	// The pavlovcik prototype stores all aliases in one logical inbox DO.
+	email: z.union([z.literal("pavlovcik.com"), z.string().email()]),
 	name: z.string().min(1),
 	settings: z.record(z.any()).optional(), // unvalidated — agentSystemPrompt goes straight to AI
 });
