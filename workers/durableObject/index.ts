@@ -918,24 +918,6 @@ export class MailboxDO extends DurableObject<Env> {
 		this.ctx.storage.sql.exec("UPDATE processing_receipts SET status = ?2, error = ?3, updated_at = ?4 WHERE message_id = ?1", messageId, status, error ?? null, new Date().toISOString());
 	}
 
-	async resolveThreadForMessage(messageId: string) {
-		const inbound = [...this.ctx.storage.sql.exec("SELECT id, thread_id, in_reply_to, email_references FROM emails WHERE id = ?1", messageId)][0] as Record<string, string | null> | undefined;
-		if (!inbound) return null;
-		const refs = [inbound.in_reply_to, ...(inbound.email_references ? (() => { try { return JSON.parse(inbound.email_references) as string[]; } catch { return []; } })() : [])].filter(Boolean) as string[];
-		if (refs.length === 0) return null;
-		const placeholders = refs.map(() => "?").join(",");
-		const match = [...this.ctx.storage.sql.exec(`SELECT thread_id FROM emails WHERE rfc_message_id IN (${placeholders}) OR message_id IN (${placeholders}) ORDER BY date ASC LIMIT 1`, ...refs, ...refs)][0] as { thread_id?: string } | undefined;
-		return match?.thread_id ?? inbound.thread_id ?? null;
-	}
-
-	async finalizeProcessing(messageId: string, threadId: string, status: "drafted" | "sent" | "failed", action: "drafted" | "sent" | "failed", error?: string | null) {
-		const now = new Date().toISOString();
-		this.ctx.storage.transactionSync(() => {
-			this.ctx.storage.sql.exec("UPDATE processing_receipts SET status = ?2, error = ?3, updated_at = ?4 WHERE message_id = ?1", messageId, status, error ?? null, now);
-			this.ctx.storage.sql.exec("UPDATE thread_automation SET last_processed_message_id = ?2, last_action = ?3, last_error = ?4, updated_at = ?5 WHERE thread_id = ?1", threadId, messageId, action, error ?? null, now);
-		});
-	}
-
 	async saveGmailOAuthState(state: { state: string; codeVerifier: string; redirectUri: string; returnPath: string; expiresAt: string }) {
 		this.ctx.storage.sql.exec("INSERT OR REPLACE INTO gmail_oauth_state (state, code_verifier, redirect_uri, return_path, expires_at) VALUES (?1, ?2, ?3, ?4, ?5)", state.state, state.codeVerifier, state.redirectUri, state.returnPath, state.expiresAt);
 	}
