@@ -15,19 +15,14 @@
 		// TEAM_DOMAIN may be the base Access URL or the full /cdn-cgi/access/certs URL.
 		// The worker now fails closed outside local development if Access is not configured.
 		"DOMAINS": "pavlovcik.com",
-		"EMAIL_ADDRESSES": []
+		"EMAIL_ADDRESSES": [],
+		// Production is intentionally fail-closed until the two scoped B2 secrets exist.
+		"EMAIL_STORAGE_MODE": "b2"
 	},
 	"send_email": [
 		{
 			"name": "EMAIL",
 			"remote": true
-		}
-	],
-	"r2_buckets": [
-		{
-			"binding": "BUCKET",
-			"bucket_name": "agentic-inbox",
-			"preview_bucket_name": "agentic-inbox"
 		}
 	],
 	"ai": {
