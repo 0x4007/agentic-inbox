@@ -3,6 +3,12 @@ import {
 	hasGmailReadonlyScope,
 } from "./gmail-oauth";
 
+/**
+ * The scope the stored credential must carry for the send transport to work.
+ * Kept here (not imported) so gmail-client stays the single Gmail API surface.
+ */
+export const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
+
 export const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const GMAIL_API_BASE_URL = "https://gmail.googleapis.com/gmail/v1/users/me";
 
@@ -213,6 +219,57 @@ export async function getGmailThread(
 		accessToken,
 		fetcher,
 	);
+}
+
+export interface GmailSendInput {
+	/** Base64url-encoded RFC 2822 message. */
+	raw: string;
+	/** Optional Gmail thread ID to attach the message to. */
+	threadId?: string;
+}
+
+/**
+ * Send a message through the authenticated Gmail account (users.messages.send).
+ * Gmail signs and delivers the message, so it always passes DMARC and is
+ * placed in the account's Sent folder.
+ */
+export async function sendGmailMessage(
+	accessToken: string,
+	input: GmailSendInput,
+	fetcher: Fetcher = fetch,
+): Promise<{ id: string; threadId?: string }> {
+	let response: Response;
+	try {
+		response = await fetcher(GMAIL_API_BASE_URL + "/messages/send", {
+			method: "POST",
+			headers: {
+				Authorization: "Bearer " + accessToken,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({ raw: input.raw, threadId: input.threadId }),
+		});
+	} catch {
+		throw new GmailApiError("Gmail API send request failed", 502);
+	}
+	if (!response.ok) {
+		const status = response.status === 401 || response.status === 403
+			? 401
+			: response.status >= 400 && response.status < 500
+				? 400
+				: 502;
+		throw new GmailApiError("Gmail API send request failed", status);
+	}
+	try {
+		const payload = await response.json() as Record<string, unknown>;
+		const id = typeof payload.id === "string" ? payload.id : "";
+		if (!id) throw new GmailApiError("Gmail returned an invalid send response", 502);
+		return {
+			id,
+			threadId: typeof payload.threadId === "string" ? payload.threadId : undefined,
+		};
+	} catch {
+		throw new GmailApiError("Gmail returned an invalid send response", 502);
+	}
 }
 
 export { GMAIL_READONLY_SCOPE };
