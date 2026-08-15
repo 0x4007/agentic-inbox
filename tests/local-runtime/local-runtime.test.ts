@@ -230,7 +230,9 @@ interface SendCapture {
 		assert.equal(sent.to, "alice@example.com");
 		assert.ok(sent.from.endsWith("@pavlovcik.com"), "reply is sent from the original alias");
 		assert.ok(sent.subject.startsWith("Re: "), "reply uses a reply subject");
-		assert.ok(sent.headers?.["Message-ID"], "reply sets a new Message-ID");
+		// Cloudflare Email Service controls Message-ID (rejects it if set);
+		// In-Reply-To and References are the allowed threading headers.
+		assert.ok(!sent.headers?.["Message-ID"], "reply does not set the platform-controlled Message-ID");
 		assert.equal(sent.headers?.["In-Reply-To"], "<reply2@example.com>");
 		assert.ok(
 			sent.headers?.["References"]?.includes("<reply2@example.com>"),

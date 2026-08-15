@@ -219,7 +219,9 @@ async function testAutoSend(): Promise<void> {
 	const service = createService(store, async () => "Tuesday morning works for me.", async (params) => {
 		sendCalls++;
 		equal(params.from, "notes@pavlovcik.com", "auto replies use the original recipient alias");
-		assert(params.headers?.["Message-ID"], "auto replies include a new Message-ID");
+		// Cloudflare Email Service controls Message-ID itself; In-Reply-To and
+		// References are the only threading headers the binding allows.
+		assert(!params.headers?.["Message-ID"], "auto replies do not set the platform-controlled Message-ID");
 		assert(params.headers?.["In-Reply-To"], "auto replies include In-Reply-To");
 		assert(params.headers?.References, "auto replies include References");
 		return { messageId: "sent" };

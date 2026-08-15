@@ -273,8 +273,11 @@ function buildOutgoingReply(
 	if (!fromDomain) throw new AutomationInputError("Incoming message lacks a reply sender domain.");
 	const { messageId, outgoingMessageId } = generateMessageId(fromDomain);
 	const references = unique([...parseReferences(inbound.emailReferences), originalMessageId]);
+	// Cloudflare Email Service controls Message-ID itself (E_HEADER_NOT_ALLOWED
+	// if set); In-Reply-To and References are allowlisted threading headers.
+	// The outgoing message's own message_id/rfc_message_id still persist the
+	// generated Message-ID for dashboard identity and RFC resolution.
 	const headers = {
-		"Message-ID": `<${outgoingMessageId}>`,
 		"In-Reply-To": `<${originalMessageId}>`,
 		References: references.map((reference) => `<${reference}>`).join(" "),
 	};
