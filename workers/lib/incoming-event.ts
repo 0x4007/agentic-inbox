@@ -26,6 +26,10 @@ export interface IncomingEmailEventShape extends RuntimeEmailEventLike {
  * the prototype and are not own enumerable properties, leaving receiveEmail
  * with an undefined stream. Reading each field by name invokes the getter and
  * copies the value onto a plain object.
+ *
+ * WebIDL methods such as `forward` also require the host object as `this`,
+ * so it is bound before copying; otherwise calling it on the plain object
+ * throws "Illegal invocation".
  */
 export function toIncomingEmailEvent(
 	event: RuntimeEmailEventLike,
@@ -36,7 +40,7 @@ export function toIncomingEmailEvent(
 		rawSize: event.rawSize,
 		from: event.from,
 		to: event.to,
-		forward: event.forward,
+		forward: typeof event.forward === "function" ? event.forward.bind(event) : undefined,
 		sendReply,
 	};
 }
