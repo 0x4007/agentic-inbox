@@ -6,7 +6,7 @@ import { type Context, Hono } from "hono";
 import { cors } from "hono/cors";
 import PostalMime from "postal-mime";
 import { z } from "zod";
-import { sendEmail } from "./email-sender";
+import { sendEmail, type SendEmailParams } from "./email-sender";
 import { storeAttachments, type StoredAttachment } from "./lib/attachments";
 import { getObjectStore } from "./lib/b2-storage";
 import {
@@ -369,6 +369,12 @@ interface IncomingEmailEvent {
 	from?: string;
 	to?: string;
 	forward?: (recipient: string, headers?: Headers) => Promise<{ messageId: string }>;
+	/**
+	 * Native same-session reply capability (message.reply) when the runtime
+	 * provides it. Auto-mode replies use this so they are not restricted to
+	 * verified destination addresses on accounts with only Email Routing.
+	 */
+	sendReply?: (params: SendEmailParams) => Promise<{ messageId: string }>;
 }
 
 async function sha256Hex(value: Uint8Array): Promise<string> {
@@ -487,7 +493,7 @@ async function receiveEmail(event: IncomingEmailEvent, env: Env, ctx: ExecutionC
 		});
 	ctx.waitUntil(forwarding.catch((e) => console.error("Gmail forwarding failed:", (e as Error).message)));
 
-	ctx.waitUntil(triggerInboundAutomation(env, { messageId }, logicalMailboxId)
+	ctx.waitUntil(triggerInboundAutomation(env, { messageId }, logicalMailboxId, { reply: event.sendReply })
 		.catch((e) => console.error("Thread automation failed closed:", (e as Error).message)));
 }
 

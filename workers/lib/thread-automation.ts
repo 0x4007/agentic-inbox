@@ -387,7 +387,11 @@ export class InboundAutomationService {
 					text: outgoing.email.body,
 					headers: outgoing.headers,
 				});
-			} catch {
+			} catch (error) {
+				console.error("Auto-send failed:", error instanceof Error ? {
+					code: (error as { code?: string }).code,
+					message: error.message,
+				} : String(error));
 				return this.#fail(inbound.id, threadId, "Outbound delivery is uncertain and will not be retried automatically.");
 			}
 
@@ -436,6 +440,16 @@ export function createAutomationStore(env: Env, mailboxId = PAVLOVCIK_LOGICAL_IN
 	};
 }
 
+export interface TriggerInboundAutomationOptions {
+	/**
+	 * Native same-session reply capability (message.reply) when the runtime
+	 * provides it. Auto-mode sends use this so they are not restricted to
+	 * verified destination addresses on accounts with only Email Routing.
+	 * Falls back to the EMAIL binding send() when absent (local fixtures).
+	 */
+	reply?: InboundAutomationDependencies["send"];
+}
+
 /**
  * Coordinator wiring point for the Worker email handler. Calling this starts
  * no background process and has no fallback path; it is safe to use in
@@ -445,11 +459,12 @@ export async function triggerInboundAutomation(
 	env: Env,
 	input: InboundAutomationInput,
 	mailboxId = PAVLOVCIK_LOGICAL_INBOX_ID,
+	options: TriggerInboundAutomationOptions = {},
 ): Promise<InboundAutomationResult> {
 	const service = new InboundAutomationService({
 		store: createAutomationStore(env, mailboxId),
 		model: new AiUosChatClient({ authToken: env.UOS_AUTH_TOKEN }),
-		send: (params) => sendEmail(env.EMAIL, params),
+		send: options.reply ?? ((params) => sendEmail(env.EMAIL, params)),
 	});
 	return service.process(input);
 }

@@ -3,9 +3,12 @@
 //     https://opensource.org/licenses/Apache-2.0
 
 import { routeAgentRequest } from "agents";
+import { EmailMessage } from "cloudflare:email";
 import { Hono } from "hono";
 import { jwtVerify, createRemoteJWKSet } from "jose";
 import { createRequestHandler } from "react-router";
+import type { SendEmailParams } from "./email-sender";
+import { buildReplyMime } from "./lib/email-reply";
 import { app as apiApp, receiveEmail } from "./index";
 import { EmailMCP } from "./mcp";
 import type { Env } from "./types";
@@ -115,12 +118,25 @@ export default {
 			raw: ReadableStream;
 			rawSize: number;
 			forward?: (recipient: string, headers?: Headers) => Promise<{ messageId: string }>;
+			reply?: (message: EmailMessage) => Promise<{ messageId: string }>;
 		},
 		env: Env,
 		ctx: ExecutionContext,
 	) {
 		try {
-			await receiveEmail(event, env, ctx);
+			// The native reply path sends within the same SMTP session, so it needs
+			// no verified destination address. Pass it through as the automation's
+			// send capability; the automation only ever replies to the original
+			// sender of the inbound email, which message.reply() requires anyway.
+			const sendReply = typeof event.reply === "function"
+				? (params: SendEmailParams): Promise<{ messageId: string }> =>
+					event.reply!(new EmailMessage(
+						typeof params.from === "string" ? params.from : params.from.email,
+						Array.isArray(params.to) ? params.to[0] : params.to,
+						buildReplyMime(params),
+					))
+				: undefined;
+			await receiveEmail({ ...event, sendReply }, env, ctx);
 		} catch (e) {
 			console.error("Failed to process incoming email:", (e as Error).message, (e as Error).stack);
 			// Re-throw so Cloudflare's email routing can retry delivery or bounce the message.
