@@ -9,6 +9,7 @@ import { jwtVerify, createRemoteJWKSet } from "jose";
 import { createRequestHandler } from "react-router";
 import type { SendEmailParams } from "./email-sender";
 import { buildReplyMime } from "./lib/email-reply";
+import { toIncomingEmailEvent } from "./lib/incoming-event";
 import { app as apiApp, receiveEmail } from "./index";
 import { EmailMCP } from "./mcp";
 import type { Env } from "./types";
@@ -117,6 +118,8 @@ export default {
 		event: {
 			raw: ReadableStream;
 			rawSize: number;
+			from?: string;
+			to?: string;
 			forward?: (recipient: string, headers?: Headers) => Promise<{ messageId: string }>;
 			reply?: (message: EmailMessage) => Promise<{ messageId: string }>;
 		},
@@ -136,7 +139,10 @@ export default {
 						buildReplyMime(params),
 					))
 				: undefined;
-			await receiveEmail({ ...event, sendReply }, env, ctx);
+			// Copy the fields explicitly rather than spreading the runtime message:
+			// WebIDL host-object getters (raw/rawSize) are not own enumerable
+			// properties, so a spread would leave receiveEmail with undefined raw.
+			await receiveEmail(toIncomingEmailEvent(event, sendReply), env, ctx);
 		} catch (e) {
 			console.error("Failed to process incoming email:", (e as Error).message, (e as Error).stack);
 			// Re-throw so Cloudflare's email routing can retry delivery or bounce the message.
