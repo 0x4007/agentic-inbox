@@ -92,7 +92,9 @@ export class AiUosChatClient {
 
 	constructor(options: AiUosClientOptions = {}) {
 		this.#authToken = options.authToken;
-		this.#fetcher = options.fetcher ?? fetch;
+		// Never store the global fetch unbound: workerd rejects calls where the
+		// receiver is not globalThis, so wrap it the same way b2-storage does.
+		this.#fetcher = options.fetcher ?? ((input, init) => fetch(input, init));
 		this.#endpoint = options.endpoint ?? AI_UOS_CHAT_COMPLETIONS_URL;
 		this.#timeoutMs = clampInteger(options.timeoutMs ?? AI_UOS_DEFAULT_TIMEOUT_MS, 1_000, 60_000);
 		this.#maxTokens = clampInteger(options.maxTokens ?? AI_UOS_MAX_REPLY_TOKENS, 1, AI_UOS_MAX_REPLY_TOKENS);
