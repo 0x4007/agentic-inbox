@@ -4,7 +4,6 @@
 
 import { Folders } from "../../shared/folders";
 import { sendEmail, type SendEmailParams } from "../email-sender";
-import { createGmailReplySender } from "./gmail-send";
 import { generateMessageId, stripHtmlToText } from "./email-helpers";
 import { AiUosChatClient, AiUosError, type AiUosMessage, validateAiUosReplyBody } from "./ai-uos";
 import type { AgentAction, AutomationMode, ProcessingStatus, ThreadAutomation } from "./agent-contract";
@@ -449,13 +448,6 @@ export interface TriggerInboundAutomationOptions {
 	 * Explicit send transport override (used by tests and local fixtures).
 	 */
 	send?: InboundAutomationDependencies["send"];
-	/**
-	 * Native same-session reply capability (message.reply) from the email
-	 * handler. Used as a fallback when the Gmail send transport is unavailable
-	 * (no stored credentials). Sending via Gmail is preferred so replies are
-	 * genuinely from the user's account and always pass DMARC.
-	 */
-	reply?: InboundAutomationDependencies["send"];
 }
 
 /**
@@ -463,8 +455,10 @@ export interface TriggerInboundAutomationOptions {
  * no background process and has no fallback path; it is safe to use in
  * `waitUntil` after the original inbound message and forwarding have completed.
  *
- * Send transport priority: explicit override > Gmail OAuth (when the account
- * is connected) > native same-session reply > EMAIL binding (local fixtures).
+ * Send transport priority: explicit override > EMAIL binding (domain-native,
+ * From = the addressed alias). The EMAIL binding sends From any address on the
+ * sender's verified domain — no per-address verification, no Gmail account,
+ * and no same-session or inbound-DMARC gate.
  */
 export async function triggerInboundAutomation(
 	env: Env,
@@ -472,15 +466,10 @@ export async function triggerInboundAutomation(
 	mailboxId = PAVLOVCIK_LOGICAL_INBOX_ID,
 	options: TriggerInboundAutomationOptions = {},
 ): Promise<InboundAutomationResult> {
-	const gmailSender = options.send === undefined
-		? await createGmailReplySender(env, mailboxId)
-		: null;
 	const service = new InboundAutomationService({
 		store: createAutomationStore(env, mailboxId),
 		model: new AiUosChatClient({ authToken: env.UOS_AUTH_TOKEN }),
 		send: options.send
-			?? gmailSender
-			?? options.reply
 			?? ((params) => sendEmail(env.EMAIL, params)),
 	});
 	return service.process(input);

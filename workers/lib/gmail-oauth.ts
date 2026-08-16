@@ -3,10 +3,8 @@ const textDecoder = new TextDecoder();
 
 export const GMAIL_READONLY_SCOPE =
 	"https://www.googleapis.com/auth/gmail.readonly";
-/** Minimal scope for sending messages as the authenticated Gmail account. */
-export const GMAIL_SEND_SCOPE =
-	"https://www.googleapis.com/auth/gmail.send";
-export const GMAIL_SCOPES = `${GMAIL_READONLY_SCOPE} ${GMAIL_SEND_SCOPE}`;
+/** Gmail is used for read/import only; sending is domain-native via the EMAIL binding. */
+export const GMAIL_SCOPES = GMAIL_READONLY_SCOPE;
 export const GOOGLE_AUTHORIZATION_URL =
 	"https://accounts.google.com/o/oauth2/v2/auth";
 
@@ -134,10 +132,6 @@ export async function createGmailAuthorization(input: {
 
 export function hasGmailReadonlyScope(scope: string | undefined): boolean {
 	return (scope ?? "").split(/\s+/).includes(GMAIL_READONLY_SCOPE);
-}
-
-export function hasGmailSendScope(scope: string | undefined): boolean {
-	return (scope ?? "").split(/\s+/).includes(GMAIL_SEND_SCOPE);
 }
 
 export async function encryptRefreshToken(

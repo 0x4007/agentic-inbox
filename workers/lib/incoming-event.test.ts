@@ -55,16 +55,14 @@ function hostLikeEvent(): {
 }
 
 function testGetterFieldsSurviveCopy(): void {
-	const { event, raw, rawSize, from, to, forwardCalls } = hostLikeEvent();
-	const sendReply = async () => ({ messageId: "reply-1" });
-	const shaped = toIncomingEmailEvent(event as never, sendReply);
+	const { event, raw, rawSize, from, to } = hostLikeEvent();
+	const shaped = toIncomingEmailEvent(event as never);
 
 	equal(shaped.raw, raw, "raw stream is preserved by field copy");
 	equal(shaped.rawSize, rawSize, "rawSize is preserved by field copy");
 	equal(shaped.from, from, "from is preserved by field copy");
 	equal(shaped.to, to, "to is preserved by field copy");
 	equal(typeof shaped.forward, "function", "forward is preserved by field copy");
-	equal(shaped.sendReply, sendReply, "sendReply capability is attached");
 	assert(!("get raw" in Object.getOwnPropertyNames(shaped)), "shaped event is a plain object, not a host object");
 }
 

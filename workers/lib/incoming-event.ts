@@ -2,8 +2,6 @@
 // Licensed under the Apache 2.0 license found in the LICENSE file or at:
 //     https://opensource.org/licenses/Apache-2.0
 
-import type { SendEmailParams } from "../email-sender";
-
 /** The runtime email-message fields receiveEmail needs (raw/rawSize/from/to/forward). */
 export interface RuntimeEmailEventLike {
 	raw: ReadableStream;
@@ -13,10 +11,8 @@ export interface RuntimeEmailEventLike {
 	forward?: (recipient: string, headers?: Headers) => Promise<{ messageId: string }>;
 }
 
-/** The full plain-object shape receiveEmail accepts, with the native reply capability. */
-export interface IncomingEmailEventShape extends RuntimeEmailEventLike {
-	sendReply?: (params: SendEmailParams) => Promise<{ messageId: string }>;
-}
+/** The full plain-object shape receiveEmail accepts. */
+export interface IncomingEmailEventShape extends RuntimeEmailEventLike {}
 
 /**
  * Copy the inbound event fields explicitly into a plain object.
@@ -33,7 +29,6 @@ export interface IncomingEmailEventShape extends RuntimeEmailEventLike {
  */
 export function toIncomingEmailEvent(
 	event: RuntimeEmailEventLike,
-	sendReply?: IncomingEmailEventShape["sendReply"],
 ): IncomingEmailEventShape {
 	return {
 		raw: event.raw,
@@ -41,6 +36,5 @@ export function toIncomingEmailEvent(
 		from: event.from,
 		to: event.to,
 		forward: typeof event.forward === "function" ? event.forward.bind(event) : undefined,
-		sendReply,
 	};
 }
