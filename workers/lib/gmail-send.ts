@@ -3,11 +3,15 @@
 //     https://opensource.org/licenses/Apache-2.0
 
 import type { SendEmailParams } from "../email-sender";
-import { sendGmailMessage, type Fetcher } from "./gmail-client";
-import { GmailApiError } from "./gmail-client";
-import { hasGmailSendScope } from "./gmail-oauth";
-import { decryptRefreshToken } from "./gmail-oauth";
-import { refreshGmailAccessToken } from "./gmail-client";
+import {
+	GmailApiError,
+	listGmailSendAs,
+	refreshGmailAccessToken,
+	sendGmailMessage,
+	type Fetcher,
+	type GmailSendAs,
+} from "./gmail-client";
+import { decryptRefreshToken, hasGmailSendScope } from "./gmail-oauth";
 import type { Env } from "../types";
 
 export const GMAIL_CREDENTIAL_ID = "primary";
@@ -63,17 +67,17 @@ function encodeHeaderValue(value: string): string {
 }
 
 /**
- * Build the base64url raw RFC 2822 message for the Gmail API. The From is
- * always the authenticated account (Gmail signs as that account and files the
- * send in Sent); the To is the reply recipient; In-Reply-To/References
- * preserve the conversation chain so Gmail threads the reply. Deliberately
- * dependency-free: this is the critical send path, so it must not rely on
- * transitive packages that need Node builtins.
+ * Build the base64url raw RFC 2822 message for the Gmail API. The From is the
+ * resolved sender (a verified send-as alias such as the original recipient
+ * address, or the authenticated account as fallback); the To is the reply
+ * recipient; In-Reply-To/References preserve the conversation chain so Gmail
+ * threads the reply. Deliberately dependency-free: this is the critical send
+ * path, so it must not rely on transitive packages that need Node builtins.
  */
-export function buildGmailRawMessage(params: SendEmailParams, accountEmail: string): string {
+export function buildGmailRawMessage(params: SendEmailParams, fromEmail: string): string {
 	const recipient = Array.isArray(params.to) ? params.to[0] : params.to;
 	const lines = [
-		`From: ${accountEmail}`,
+		`From: ${fromEmail}`,
 		`To: ${recipient}`,
 		`Subject: ${encodeHeaderValue(params.subject)}`,
 		`Date: ${new Date().toUTCString()}`,
@@ -89,6 +93,37 @@ export function buildGmailRawMessage(params: SendEmailParams, accountEmail: stri
 	return base64UrlFromString(lines.join("\r\n") + "\r\n\r\n" + body);
 }
 
+function fromEmail(params: SendEmailParams): string {
+	const from = params.from;
+	if (typeof from === "string") return from.trim();
+	if (from && typeof from === "object" && typeof from.email === "string") {
+		return from.email.trim();
+	}
+	return "";
+}
+
+/**
+ * Resolve the From address for a reply. Prefer the logical sender passed by
+ * the automation (the original recipient alias, e.g. agentic-inbox-test@…)
+ * when the account has it as a verified send-as alias — Gmail then sends and
+ * signs as that address. Fall back to the authenticated account otherwise.
+ */
+export function resolveGmailFromEmail(
+	params: SendEmailParams,
+	accountEmail: string,
+	sendAs: GmailSendAs[],
+): string {
+	const requested = fromEmail(params).toLowerCase();
+	const account = accountEmail.toLowerCase();
+	if (!requested) return accountEmail;
+	if (requested === account) return accountEmail;
+	const verified = sendAs.find((alias) =>
+		(alias.sendAsEmail ?? "").toLowerCase() === requested &&
+		alias.verificationStatus === "verified",
+	);
+	return verified?.sendAsEmail ?? accountEmail;
+}
+
 interface GmailReplySenderOptions {
 	fetcher?: Fetcher;
 }
@@ -97,7 +132,8 @@ interface GmailReplySenderOptions {
  * Create the Gmail send capability for the automation, or null when the
  * account has no stored Gmail credentials. The returned sender refreshes the
  * access token on every call (cheap, correct) and posts the raw message to
- * users.messages.send, which signs it as the account and files it in Sent.
+ * users.messages.send, which signs it as the resolved sender (a verified
+ * send-as alias when available) and files it in Sent.
  */
 export async function createGmailReplySender(
 	env: Env,
@@ -152,9 +188,18 @@ export async function createGmailReplySender(
 			throw new GmailSendError("Gmail token refresh failed.", "transport-failure");
 		}
 
+		let sendAs: GmailSendAs[];
+		try {
+			sendAs = await listGmailSendAs(accessToken, fetcher);
+		} catch {
+			// Listing aliases is best-effort; sending still works as the account.
+			sendAs = [];
+		}
+		const from = resolveGmailFromEmail(params, accountEmail, sendAs);
+
 		try {
 			const sent = await sendGmailMessage(accessToken, {
-				raw: buildGmailRawMessage(params, accountEmail),
+				raw: buildGmailRawMessage(params, from),
 				threadId: params.threadId,
 			}, fetcher);
 			return { messageId: sent.id };

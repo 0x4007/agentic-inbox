@@ -1,7 +1,9 @@
 // Focused, dependency-free tests for the Gmail reply send transport. Bundle
 // with esbuild and run under Node; never contacts Gmail.
 
-import { buildGmailRawMessage } from "./gmail-send";
+import { buildGmailRawMessage, resolveGmailFromEmail } from "./gmail-send";
+import type { GmailSendAs } from "./gmail-client";
+import type { SendEmailParams } from "../email-sender";
 
 function assert(condition: unknown, message: string): asserts condition {
 	if (!condition) throw new Error(message);
@@ -14,8 +16,8 @@ function decodeBase64Url(value: string): string {
 	return new TextDecoder().decode(Uint8Array.from(binary, (c) => c.charCodeAt(0)));
 }
 
-function testRawMessageUsesAccountAsFrom(): void {
-	const raw = buildGmailRawMessage({
+function replyParams(): SendEmailParams {
+	return {
 		to: "alice@example.net",
 		from: "notes@pavlovcik.com",
 		subject: "Re: Project update",
@@ -24,16 +26,56 @@ function testRawMessageUsesAccountAsFrom(): void {
 			"In-Reply-To": "<incoming@example.net>",
 			References: "<earlier@example.net> <incoming@example.net>",
 		},
-	}, "pavlovcik@gmail.com");
+	};
+}
+
+function testRawMessageUsesResolvedFrom(): void {
+	const raw = buildGmailRawMessage(replyParams(), "notes@pavlovcik.com");
 	const mime = decodeBase64Url(raw).toLowerCase();
-	assert(mime.startsWith("from: pavlovcik@gmail.com"), "raw message is RFC 2822 text starting with From");
-	assert(mime.includes("from: pavlovcik@gmail.com"), "From is the authenticated account, not the alias");
-	assert(!mime.includes("notes@pavlovcik.com"), "the alias address is not used as From");
+	assert(mime.startsWith("from: notes@pavlovcik.com"), "raw message starts with the resolved From");
+	assert(mime.includes("from: notes@pavlovcik.com"), "From is the resolved sender alias");
 	assert(mime.includes("to: alice@example.net"), "To is the reply recipient");
 	assert(mime.includes("in-reply-to: <incoming@example.net>"), "In-Reply-To preserved for threading");
 	assert(mime.includes("references: <earlier@example.net> <incoming@example.net>"), "References preserved for threading");
 	assert(mime.includes("tuesday works."), "reply body included");
 	assert(mime.includes("content-type: text/plain; charset=utf-8"), "body is plain text");
+}
+
+function testResolveUsesVerifiedAlias(): void {
+	const sendAs: GmailSendAs[] = [
+		{ sendAsEmail: "pavlovcik@gmail.com", isDefault: true, verificationStatus: "verified" },
+		{ sendAsEmail: "agentic-inbox-test@pavlovcik.com", verificationStatus: "verified" },
+		{ sendAsEmail: "unverified@pavlovcik.com", verificationStatus: "unverified" },
+	];
+	const resolved = resolveGmailFromEmail(
+		{ ...replyParams(), from: "agentic-inbox-test@pavlovcik.com" },
+		"pavlovcik@gmail.com",
+		sendAs,
+	);
+	assert(resolved === "agentic-inbox-test@pavlovcik.com", "uses the verified send-as alias as From");
+}
+
+function testResolveFallsBackWhenAliasUnverified(): void {
+	const sendAs: GmailSendAs[] = [
+		{ sendAsEmail: "pavlovcik@gmail.com", isDefault: true, verificationStatus: "verified" },
+		{ sendAsEmail: "notes@pavlovcik.com", verificationStatus: "unverified" },
+	];
+	const resolved = resolveGmailFromEmail(replyParams(), "pavlovcik@gmail.com", sendAs);
+	assert(resolved === "pavlovcik@gmail.com", "unverified aliases fall back to the account");
+}
+
+function testResolveFallsBackWhenNotAnAlias(): void {
+	const resolved = resolveGmailFromEmail(replyParams(), "pavlovcik@gmail.com", []);
+	assert(resolved === "pavlovcik@gmail.com", "no matching alias falls back to the account");
+}
+
+function testResolveAccountRequested(): void {
+	const resolved = resolveGmailFromEmail(
+		{ ...replyParams(), from: "pavlovcik@gmail.com" },
+		"pavlovcik@gmail.com",
+		[],
+	);
+	assert(resolved === "pavlovcik@gmail.com", "requesting the account itself resolves to the account");
 }
 
 function testHeaderInjectionSanitized(): void {
@@ -74,7 +116,11 @@ function testRawMessageBase64UrlEncoded(): void {
 }
 
 async function run(): Promise<void> {
-	testRawMessageUsesAccountAsFrom();
+	testRawMessageUsesResolvedFrom();
+	testResolveUsesVerifiedAlias();
+	testResolveFallsBackWhenAliasUnverified();
+	testResolveFallsBackWhenNotAnAlias();
+	testResolveAccountRequested();
 	testRawMessageBase64UrlEncoded();
 	testHeaderInjectionSanitized();
 	testNonAsciiSubjectEncoded();

@@ -221,6 +221,49 @@ export async function getGmailThread(
 	);
 }
 
+export interface GmailSendAs {
+	/** The send-as address (e.g. a verified domain alias). */
+	sendAsEmail?: string;
+	displayName?: string;
+	isDefault?: boolean;
+	/** "verified" when the alias is confirmed by the account owner. */
+	verificationStatus?: string;
+}
+
+/**
+ * List the account's send-as aliases (users.settings.sendAs.list). The primary
+ * account address is always included; custom aliases appear once verified.
+ * Covered by the existing gmail.readonly scope.
+ */
+export async function listGmailSendAs(
+	accessToken: string,
+	fetcher: Fetcher = fetch,
+): Promise<GmailSendAs[]> {
+	const payload = await gmailGet<Record<string, unknown>>(
+		"/settings/sendAs",
+		accessToken,
+		fetcher,
+	);
+	const sendAs = payload.sendAs;
+	if (!Array.isArray(sendAs)) return [];
+	return sendAs
+		.filter((entry): entry is Record<string, unknown> =>
+			!!entry && typeof entry === "object",
+		)
+		.map((entry) => ({
+			sendAsEmail: typeof entry.sendAsEmail === "string"
+				? entry.sendAsEmail
+				: undefined,
+			displayName: typeof entry.displayName === "string"
+				? entry.displayName
+				: undefined,
+			isDefault: entry.isDefault === true ? true : undefined,
+			verificationStatus: typeof entry.verificationStatus === "string"
+				? entry.verificationStatus
+				: undefined,
+		}));
+}
+
 export interface GmailSendInput {
 	/** Base64url-encoded RFC 2822 message. */
 	raw: string;
