@@ -87,6 +87,10 @@ interface EmailData {
 	thread_id?: string | null;
 	message_id?: string | null;
 	raw_headers?: string | null;
+	source?: "cloudflare" | "gmail" | "agent";
+	source_message_id?: string | null;
+	rfc_message_id?: string | null;
+	idempotency_key?: string | null;
 }
 
 interface AttachmentData {
@@ -132,42 +136,22 @@ export class MailboxDO extends DurableObject<Env> {
 
 		const offset = (page - 1) * limit;
 
-		const conditions: SQL[] = [];
+		const conditions: string[] = [];
+		const params: (string | number)[] = [];
 		if (folder) {
-			conditions.push(
-				sql`${schema.emails.folder_id} = (SELECT id FROM folders WHERE name = ${folder} OR id = ${folder} LIMIT 1)`,
-			);
+			conditions.push("folder_id = (SELECT id FROM folders WHERE name = ?1 OR id = ?1 LIMIT 1)");
+			params.push(folder);
 		}
 		if (thread_id) {
-			conditions.push(eq(schema.emails.thread_id, thread_id));
+			conditions.push(`thread_id = ?${params.length + 1}`);
+			params.push(thread_id);
 		}
-
-		const orderCol = SORT_COLUMN_MAP[sortColumn];
-		const orderDir = sortDirection === "ASC" ? asc(orderCol) : desc(orderCol);
-
-		const result = this.db
-			.select({
-				id: schema.emails.id,
-				subject: schema.emails.subject,
-				sender: schema.emails.sender,
-				recipient: schema.emails.recipient,
-				cc: schema.emails.cc,
-				bcc: schema.emails.bcc,
-				date: schema.emails.date,
-				read: schema.emails.read,
-				starred: schema.emails.starred,
-				in_reply_to: schema.emails.in_reply_to,
-				email_references: schema.emails.email_references,
-				thread_id: schema.emails.thread_id,
-				folder_id: schema.emails.folder_id,
-				snippet: sql<string>`SUBSTR(${schema.emails.body}, 1, 300)`,
-			})
-			.from(schema.emails)
-			.where(conditions.length > 0 ? and(...conditions) : undefined)
-			.orderBy(orderDir)
-			.limit(limit)
-			.offset(offset)
-			.all();
+		const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+		params.push(limit, offset);
+		const result = [...this.ctx.storage.sql.exec(
+			`SELECT id, subject, sender, recipient, cc, bcc, date, read, starred, in_reply_to, email_references, thread_id, folder_id, SUBSTR(body, 1, 300) AS snippet FROM emails ${where} ORDER BY ${sortColumn} ${sortDirection === "ASC" ? "ASC" : "DESC"} LIMIT ?${params.length - 1} OFFSET ?${params.length}`,
+			...params,
+		)] as unknown as EmailData[];
 
 		return result.map((email) => ({
 			...email,
@@ -862,11 +846,114 @@ export class MailboxDO extends DurableObject<Env> {
 				thread_id: email.thread_id ?? null,
 				message_id: email.message_id ?? null,
 				raw_headers: email.raw_headers ?? null,
+				source: email.source ?? "cloudflare",
+				source_message_id: email.source_message_id ?? null,
+				rfc_message_id: email.rfc_message_id ?? email.message_id ?? null,
+				idempotency_key: email.idempotency_key ?? null,
 			})
 			.run();
 
 		if (attachments.length > 0) {
 			this.db.insert(schema.attachments).values(attachments).run();
 		}
+	}
+
+	/** Coordinator-owned persistence RPCs used by the Gmail and automation modules. */
+	async findEmailByIdentity(identity: { source?: string; sourceMessageId?: string | null; rfcMessageId?: string | null; idempotencyKey?: string | null }) {
+		const row = [...this.ctx.storage.sql.exec(
+			`SELECT * FROM emails WHERE (source = ?1 AND source_message_id = ?2)
+			 OR (?3 IS NOT NULL AND rfc_message_id = ?3)
+			 OR (?4 IS NOT NULL AND idempotency_key = ?4) LIMIT 1`,
+			identity.source ?? "cloudflare", identity.sourceMessageId ?? null,
+			identity.rfcMessageId ?? null, identity.idempotencyKey ?? null,
+		)][0];
+		return row ?? null;
+	}
+
+	async getThreadAutomation(threadId: string) {
+		return ([...this.ctx.storage.sql.exec("SELECT * FROM thread_automation WHERE thread_id = ?1", threadId)][0] ?? null) as Record<string, unknown> | null;
+	}
+
+	async upsertThreadAutomation(input: { threadId: string; gmailThreadId?: string | null; enabled: boolean; mode: "draft" | "auto"; goalPrompt: string; privateNotes: string }) {
+		const now = new Date().toISOString();
+		this.ctx.storage.sql.exec(`INSERT INTO thread_automation (thread_id, gmail_thread_id, enabled, mode, goal_prompt, private_notes, last_action, created_at, updated_at)
+			VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'none', ?7, ?7)
+			ON CONFLICT(thread_id) DO UPDATE SET gmail_thread_id=excluded.gmail_thread_id, enabled=excluded.enabled, mode=excluded.mode,
+			goal_prompt=excluded.goal_prompt, private_notes=excluded.private_notes, updated_at=excluded.updated_at`,
+			input.threadId, input.gmailThreadId ?? null, input.enabled ? 1 : 0, input.mode, input.goalPrompt, input.privateNotes, now);
+		return this.getThreadAutomation(input.threadId);
+	}
+
+	async claimProcessingReceipt(messageId: string, threadId: string) {
+		const now = new Date().toISOString();
+		try {
+			this.ctx.storage.sql.exec(`INSERT INTO processing_receipts (message_id, thread_id, status, claimed_at, updated_at) VALUES (?1, ?2, 'pending', ?3, ?3)`, messageId, threadId, now);
+			return true;
+		} catch (error) {
+			if (error instanceof Error && /unique|constraint/i.test(error.message)) {
+				return false;
+			}
+			throw error;
+		}
+	}
+
+	async updateProcessingReceipt(messageId: string, status: "pending" | "drafted" | "sending" | "sent" | "failed", error?: string | null) {
+		this.ctx.storage.sql.exec("UPDATE processing_receipts SET status = ?2, error = ?3, updated_at = ?4 WHERE message_id = ?1", messageId, status, error ?? null, new Date().toISOString());
+	}
+
+	async resolveThreadForMessage(messageId: string) {
+		const inbound = [...this.ctx.storage.sql.exec("SELECT id, thread_id, in_reply_to, email_references FROM emails WHERE id = ?1", messageId)][0] as Record<string, string | null> | undefined;
+		if (!inbound) return null;
+		const refs = [inbound.in_reply_to, ...(inbound.email_references ? (() => { try { return JSON.parse(inbound.email_references) as string[]; } catch { return []; } })() : [])].filter(Boolean) as string[];
+		if (refs.length === 0) return null;
+		return this.findThreadByRfcReferences(refs);
+	}
+
+	/** Find the one local thread referenced by RFC reply headers. */
+	async findThreadByRfcReferences(references: string[]): Promise<string | null> {
+		const refs = [...new Set(references.map((reference) => reference.trim()).filter(Boolean))];
+		if (refs.length === 0) return null;
+		const placeholders = refs.map(() => "?").join(",");
+		const match = [...this.ctx.storage.sql.exec(
+			`SELECT thread_id FROM emails
+			 WHERE thread_id IS NOT NULL
+			   AND (rfc_message_id IN (${placeholders}) OR message_id IN (${placeholders}))
+			 ORDER BY date ASC LIMIT 1`,
+			...refs,
+			...refs,
+		)][0] as { thread_id?: string | null } | undefined;
+		return match?.thread_id ?? null;
+	}
+
+	async finalizeProcessing(messageId: string, threadId: string, status: "drafted" | "sent" | "failed", action: "drafted" | "sent" | "failed", error?: string | null) {
+		const now = new Date().toISOString();
+		this.ctx.storage.transactionSync(() => {
+			this.ctx.storage.sql.exec("UPDATE processing_receipts SET status = ?2, error = ?3, updated_at = ?4 WHERE message_id = ?1", messageId, status, error ?? null, now);
+			this.ctx.storage.sql.exec("UPDATE thread_automation SET last_processed_message_id = ?2, last_action = ?3, last_error = ?4, updated_at = ?5 WHERE thread_id = ?1", threadId, messageId, action, error ?? null, now);
+		});
+	}
+
+	async saveGmailOAuthState(state: { state: string; codeVerifier: string; redirectUri: string; returnPath: string; expiresAt: string }) {
+		this.ctx.storage.sql.exec("INSERT OR REPLACE INTO gmail_oauth_state (state, code_verifier, redirect_uri, return_path, expires_at) VALUES (?1, ?2, ?3, ?4, ?5)", state.state, state.codeVerifier, state.redirectUri, state.returnPath, state.expiresAt);
+	}
+
+	async consumeGmailOAuthState(state: string) {
+		const row = [...this.ctx.storage.sql.exec("SELECT * FROM gmail_oauth_state WHERE state = ?1 AND expires_at > ?2", state, new Date().toISOString())][0] as Record<string, string> | undefined;
+		if (row) this.ctx.storage.sql.exec("DELETE FROM gmail_oauth_state WHERE state = ?1", state);
+		return row ?? null;
+	}
+
+	async saveGmailCredentials(credentials: { id: string; accountEmail: string; encryptedRefreshToken: string; scope: string }) {
+		const now = new Date().toISOString();
+		this.ctx.storage.sql.exec("INSERT OR REPLACE INTO gmail_credentials (id, account_email, encrypted_refresh_token, scope, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, COALESCE((SELECT created_at FROM gmail_credentials WHERE id = ?1), ?5), ?5)", credentials.id, credentials.accountEmail, credentials.encryptedRefreshToken, credentials.scope, now);
+	}
+
+	async getGmailCredentials(id = "primary") {
+		return ([...this.ctx.storage.sql.exec("SELECT id, account_email, scope, created_at, updated_at FROM gmail_credentials WHERE id = ?1", id)][0] ?? null) as Record<string, unknown> | null;
+	}
+
+	/** Server-only credential lookup; callers must never serialize this result to clients. */
+	async getGmailCredentialsForUse(id = "primary") {
+		return ([...this.ctx.storage.sql.exec("SELECT * FROM gmail_credentials WHERE id = ?1", id)][0] ?? null) as Record<string, unknown> | null;
 	}
 }

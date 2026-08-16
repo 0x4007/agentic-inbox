@@ -13,6 +13,7 @@ import type { EmailFull } from "./schemas";
 import { Folders } from "../../shared/folders";
 import type { Env } from "../types";
 import { formatQuotedDate } from "../../shared/dates";
+import type { ObjectStore } from "./b2-storage";
 
 // ── DO Stub ────────────────────────────────────────────────────────
 
@@ -32,12 +33,12 @@ export function getMailboxStub(
 // ── Mailbox Listing ────────────────────────────────────────────────
 
 /**
- * List all mailboxes from R2 bucket metadata.
+ * List all mailboxes from object-store metadata.
  */
 export async function listMailboxes(
-	bucket: R2Bucket,
+	store: ObjectStore,
 ): Promise<{ id: string; email: string }[]> {
-	const list = await bucket.list({ prefix: "mailboxes/" });
+	const list = await store.list({ prefix: "mailboxes/" });
 	return list.objects.map((obj) => {
 		const id = obj.key.replace("mailboxes/", "").replace(".json", "");
 		return { id, email: id };

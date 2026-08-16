@@ -24,4 +24,10 @@ export const queryKeys = {
 			["search", mailboxId, query, page] as const,
 	},
 	config: ["config"] as const,
+	gmail: {
+		status: ["gmail", "status"] as const,
+	},
+	threadAutomation: {
+		detail: (threadId: string) => ["thread-automation", threadId] as const,
+	},
 };

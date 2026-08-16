@@ -8,6 +8,7 @@ import PostalMime from "postal-mime";
 import { z } from "zod";
 import { sendEmail } from "./email-sender";
 import { storeAttachments, type StoredAttachment } from "./lib/attachments";
+import { getObjectStore } from "./lib/b2-storage";
 import {
 	validateSender,
 	SenderValidationError,
@@ -20,13 +21,19 @@ import { handleReplyEmail, handleForwardEmail } from "./routes/reply-forward";
 import { Folders } from "../shared/folders";
 import type { Env } from "./types";
 import { requireMailbox, type MailboxContext } from "./lib/mailbox";
+import {
+	gmailStatus, gmailOAuthStart, gmailOAuthCallback, gmailImport,
+} from "./routes/gmail-agent";
+import { getThreadAutomation, putThreadAutomation } from "./routes/thread-automation";
+import { triggerInboundAutomation } from "./lib/thread-automation";
 
 type AppContext = Context<MailboxContext>;
 
 // -- Request body schemas (kept for validation) ---------------------
 
 const CreateMailboxBody = z.object({
-	email: z.string().email(),
+	// The pavlovcik prototype stores all aliases in one logical inbox DO.
+	email: z.union([z.literal("pavlovcik.com"), z.string().email()]),
 	name: z.string().min(1),
 	settings: z.record(z.any()).optional(), // unvalidated — agentSystemPrompt goes straight to AI
 });
@@ -83,6 +90,14 @@ app.use("/api/*", cors({
 }));
 app.use("/api/v1/mailboxes/:mailboxId/*", requireMailbox);
 
+// Thread-agent contract routes. Implementations are supplied by isolated modules.
+app.get("/api/v1/gmail/status", gmailStatus);
+app.get("/api/v1/gmail/oauth/start", gmailOAuthStart);
+app.get("/api/v1/gmail/oauth/callback", gmailOAuthCallback);
+app.post("/api/v1/gmail/threads/import", gmailImport);
+app.get("/api/v1/threads/:threadId/automation", getThreadAutomation);
+app.put("/api/v1/threads/:threadId/automation", putThreadAutomation);
+
 // -- Config ---------------------------------------------------------
 
 app.get("/api/v1/config", (c) => {
@@ -95,7 +110,7 @@ app.get("/api/v1/config", (c) => {
 // -- Mailboxes ------------------------------------------------------
 
 app.get("/api/v1/mailboxes", async (c) => {
-	const allMailboxes = await listMailboxes(c.env.BUCKET);
+	const allMailboxes = await listMailboxes(getObjectStore(c.env));
 	return c.json(allMailboxes.map((m) => ({ ...m, name: m.id })));
 });
 
@@ -107,10 +122,11 @@ app.post("/api/v1/mailboxes", async (c) => {
 		return c.json({ error: "Mailbox creation is restricted to configured EMAIL_ADDRESSES" }, 403);
 	}
 	const key = `mailboxes/${email}.json`;
-	if (await c.env.BUCKET.head(key)) return c.json({ error: "Mailbox already exists" }, 409);
+	const store = getObjectStore(c.env);
+	if (await store.head(key)) return c.json({ error: "Mailbox already exists" }, 409);
 	const defaultSettings = { fromName: name, forwarding: { enabled: false, email: "" }, signature: { enabled: false, text: "" }, autoReply: { enabled: false, subject: "", message: "" } };
 	const finalSettings = { ...defaultSettings, ...settings };
-	await c.env.BUCKET.put(key, JSON.stringify(finalSettings));
+	await store.put(key, JSON.stringify(finalSettings));
 	const stub = c.env.MAILBOX.get(c.env.MAILBOX.idFromName(email));
 	await stub.getFolders();
 	return c.json({ id: email, email, name, settings: finalSettings }, 201);
@@ -118,7 +134,7 @@ app.post("/api/v1/mailboxes", async (c) => {
 
 app.get("/api/v1/mailboxes/:mailboxId", async (c) => {
 	const mailboxId = c.req.param("mailboxId")!;
-	const obj = await c.env.BUCKET.get(`mailboxes/${mailboxId}.json`);
+	const obj = await getObjectStore(c.env).get(`mailboxes/${mailboxId}.json`);
 	if (!obj) return c.json({ error: "Not found" }, 404);
 	return c.json({ id: mailboxId, name: mailboxId, email: mailboxId, settings: await obj.json() });
 });
@@ -127,16 +143,18 @@ app.put("/api/v1/mailboxes/:mailboxId", async (c) => {
 	const mailboxId = c.req.param("mailboxId")!;
 	const { settings } = (await c.req.json()) as { settings: Record<string, unknown> };
 	const key = `mailboxes/${mailboxId}.json`;
-	if (!(await c.env.BUCKET.head(key))) return c.json({ error: "Not found" }, 404);
-	await c.env.BUCKET.put(key, JSON.stringify(settings));
+	const store = getObjectStore(c.env);
+	if (!(await store.head(key))) return c.json({ error: "Not found" }, 404);
+	await store.put(key, JSON.stringify(settings));
 	return c.json({ id: mailboxId, name: mailboxId, email: mailboxId, settings });
 });
 
 app.delete("/api/v1/mailboxes/:mailboxId", async (c) => {
 	const mailboxId = c.req.param("mailboxId")!;
 	const key = `mailboxes/${mailboxId}.json`;
-	if (!(await c.env.BUCKET.head(key))) return c.json({ error: "Not found" }, 404);
-	await c.env.BUCKET.delete(key); // TODO: also delete DO data and R2 attachment blobs
+	const store = getObjectStore(c.env);
+	if (!(await store.head(key))) return c.json({ error: "Not found" }, 404);
+	await store.delete(key); // TODO: also delete DO data and attachment blobs
 	return c.body(null, 204);
 });
 
@@ -182,7 +200,7 @@ app.post("/api/v1/mailboxes/:mailboxId/emails", async (c: AppContext) => {
 	const stub = c.var.mailboxStub;
 	const rateLimitError = await (stub as any).checkSendRateLimit();
 	if (rateLimitError) return c.json({ error: rateLimitError }, 429);
-	const attachmentData = await storeAttachments(c.env.BUCKET, messageId, attachments);
+	const attachmentData = await storeAttachments(getObjectStore(c.env), messageId, attachments);
 
 	await stub.createEmail(Folders.SENT, {
 		id: messageId, subject, sender: fromEmail, recipient: toStr,
@@ -245,7 +263,7 @@ app.delete("/api/v1/mailboxes/:mailboxId/emails/:id", async (c: AppContext) => {
 	const id = c.req.param("id")!;
 	const attachments = await c.var.mailboxStub.deleteEmail(id);
 	if (attachments === null) return c.json({ error: "Not found" }, 404);
-	if (attachments.length > 0) await c.env.BUCKET.delete(attachments.map((att: any) => `attachments/${id}/${att.id}/${att.filename}`));
+	if (attachments.length > 0) await getObjectStore(c.env).delete(attachments.map((att: any) => `attachments/${id}/${att.id}/${att.filename}`));
 	return c.body(null, 204);
 });
 
@@ -316,7 +334,7 @@ app.get("/api/v1/mailboxes/:mailboxId/emails/:emailId/attachments/:attachmentId"
 	const attachmentId = c.req.param("attachmentId")!;
 	const attachment = await c.var.mailboxStub.getAttachment(attachmentId);
 	if (!attachment) return c.json({ error: "Attachment not found" }, 404);
-	const obj = await c.env.BUCKET.get(`attachments/${emailId}/${attachmentId}/${attachment.filename}`);
+	const obj = await getObjectStore(c.env).get(`attachments/${emailId}/${attachmentId}/${attachment.filename}`);
 	if (!obj) return c.json({ error: "Attachment file not found" }, 404);
 	const headers = new Headers();
 	headers.set("Content-Type", attachment.mimetype);
@@ -345,14 +363,35 @@ async function streamToArrayBuffer(stream: ReadableStream, streamSize: number) {
 	return result;
 }
 
-async function receiveEmail(event: { raw: ReadableStream; rawSize: number }, env: Env, ctx: ExecutionContext) {
+interface IncomingEmailEvent {
+	raw: ReadableStream;
+	rawSize: number;
+	from?: string;
+	to?: string;
+	forward?: (recipient: string, headers?: Headers) => Promise<{ messageId: string }>;
+}
+
+async function sha256Hex(value: Uint8Array): Promise<string> {
+	const digest = await crypto.subtle.digest("SHA-256", value as unknown as BufferSource);
+	return [...new Uint8Array(digest)]
+		.map((byte) => byte.toString(16).padStart(2, "0"))
+		.join("");
+}
+
+function isUniqueConstraint(error: unknown): boolean {
+	return error instanceof Error && /unique|constraint/i.test(error.message);
+}
+
+async function receiveEmail(event: IncomingEmailEvent, env: Env, ctx: ExecutionContext) {
 	const rawEmail = await streamToArrayBuffer(event.raw, event.rawSize);
 	const parsedEmail = await new PostalMime().parse(rawEmail);
 
 	if (!parsedEmail.to?.length || !parsedEmail.to[0].address) throw new Error("received email with empty to");
 
 	const allowedAddresses = ((env.EMAIL_ADDRESSES ?? []) as string[]).map((a) => a.toLowerCase());
-	const allRecipients = parsedEmail.to.map((t) => t.address?.toLowerCase()).filter(Boolean) as string[];
+	const envelopeRecipient = event.to?.trim().toLowerCase() || "";
+	const parsedRecipients = parsedEmail.to.map((t) => t.address?.toLowerCase()).filter(Boolean) as string[];
+	const allRecipients = [...new Set([envelopeRecipient, ...parsedRecipients].filter(Boolean))];
 	const ccRecipients = (parsedEmail.cc || []).map((e) => e.address?.toLowerCase()).filter(Boolean) as string[];
 	const bccRecipients = (parsedEmail.bcc || []).map((e) => e.address?.toLowerCase()).filter(Boolean) as string[];
 
@@ -360,53 +399,96 @@ async function receiveEmail(event: { raw: ReadableStream; rawSize: number }, env
 	if (allowedAddresses.length > 0) {
 		mailboxId = allRecipients.find((addr) => allowedAddresses.includes(addr));
 		if (!mailboxId) { console.log(`Ignoring email: no recipient matches EMAIL_ADDRESSES.`); return; }
-	} else { mailboxId = allRecipients[0]; }
+	} else { mailboxId = envelopeRecipient || allRecipients[0]; }
 	if (!mailboxId) throw new Error("received email with no valid recipient address");
+	const logicalMailboxId = mailboxId.endsWith("@pavlovcik.com") ? "pavlovcik.com" : mailboxId;
 
 	const messageId = crypto.randomUUID();
-	if (!(await env.BUCKET.head(`mailboxes/${mailboxId}.json`))) { console.log(`Ignoring email for ${mailboxId}: mailbox does not exist`); return; }
+	const store = getObjectStore(env);
+	if (!(await store.head(`mailboxes/${logicalMailboxId}.json`))) { console.log(`Ignoring email for ${logicalMailboxId}: mailbox does not exist`); return; }
 
-	const stub = env.MAILBOX.get(env.MAILBOX.idFromName(mailboxId));
+	const stub = env.MAILBOX.get(env.MAILBOX.idFromName(logicalMailboxId));
+	const extractMsgId = (s: string) => { const m = s.match(/<([^>]+)>/); return m ? m[1] : s.trim().split(/\s+/)[0]; };
+	const inReplyTo = parsedEmail.inReplyTo ? extractMsgId(parsedEmail.inReplyTo) : null;
+	const emailReferences = parsedEmail.references
+		? [...new Set(parsedEmail.references.split(/\s+/).filter(Boolean).map(extractMsgId))]
+		: [];
+	const originalMessageId = parsedEmail.messageId ? extractMsgId(parsedEmail.messageId) : null;
+	const sourceMessageId = originalMessageId ?? `sha256:${await sha256Hex(rawEmail)}`;
+	const idempotencyKey = `cloudflare:${sourceMessageId}`;
+	const existing = await stub.findEmailByIdentity({
+		source: "cloudflare",
+		sourceMessageId,
+		rfcMessageId: originalMessageId,
+		idempotencyKey,
+	});
+	if (existing) return;
 
 	const attachmentData: StoredAttachment[] = [];
 	if (parsedEmail.attachments) {
 		for (const att of parsedEmail.attachments) {
 			const attId = crypto.randomUUID();
 			const filename = (att.filename || "untitled").replace(/[\/\\:*?"<>|\x00-\x1f]/g, "_");
-			await env.BUCKET.put(`attachments/${messageId}/${attId}/${filename}`, att.content);
+			await store.put(`attachments/${messageId}/${attId}/${filename}`, att.content);
 			attachmentData.push({ id: attId, email_id: messageId, filename, mimetype: att.mimeType,
 				size: typeof att.content === "string" ? att.content.length : att.content.byteLength,
 				content_id: att.contentId || null, disposition: att.disposition || "attachment" });
 		}
 	}
 
-	const extractMsgId = (s: string) => { const m = s.match(/<([^>]+)>/); return m ? m[1] : s.trim().split(/\s+/)[0]; };
-	const inReplyTo = parsedEmail.inReplyTo ? extractMsgId(parsedEmail.inReplyTo) : null;
-	const emailReferences = parsedEmail.references ? parsedEmail.references.split(/\s+/).filter(Boolean).map(extractMsgId) : [];
-	let threadId = emailReferences[0] || inReplyTo || messageId;
+	let threadId = messageId;
 
-	if (!inReplyTo && emailReferences.length === 0) {
+	if (inReplyTo || emailReferences.length > 0) {
+		const matchedThread = await (stub as any).findThreadByRfcReferences([
+			inReplyTo,
+			...emailReferences,
+		].filter(Boolean));
+		if (matchedThread) threadId = matchedThread;
+	} else {
 		const subjectThread = await (stub as any).findThreadBySubject(parsedEmail.subject || "", parsedEmail.from?.address || undefined);
 		if (subjectThread) threadId = subjectThread;
 	}
 
-	const originalMessageId = parsedEmail.messageId ? extractMsgId(parsedEmail.messageId) : null;
-
-	await stub.createEmail(Folders.INBOX, {
+	const sender = (event.from?.trim() || parsedEmail.from?.address || "").toLowerCase();
+	const recipient = envelopeRecipient || allRecipients.join(", ");
+	try {
+		await stub.createEmail(Folders.INBOX, {
 		id: messageId, subject: parsedEmail.subject || "",
-		sender: (parsedEmail.from?.address || "").toLowerCase(), recipient: allRecipients.join(", "),
+		sender, recipient,
 		cc: ccRecipients.join(", ") || null, bcc: bccRecipients.join(", ") || null,
 		date: new Date().toISOString(), // uses receive time, not the email's Date header
 		body: parsedEmail.html || parsedEmail.text || "",
 		in_reply_to: inReplyTo, email_references: emailReferences.length > 0 ? JSON.stringify(emailReferences) : null,
 		thread_id: threadId, message_id: originalMessageId, raw_headers: JSON.stringify(parsedEmail.headers),
-	}, attachmentData);
+		source: "cloudflare", source_message_id: sourceMessageId,
+		rfc_message_id: originalMessageId, idempotency_key: idempotencyKey,
+		}, attachmentData);
+	} catch (error) {
+		if (!isUniqueConstraint(error)) throw error;
+		for (const attachment of attachmentData) {
+			await store.delete(`attachments/${messageId}/${attachment.id}/${attachment.filename}`);
+		}
+		// A concurrent Cloudflare retry won the identity claim. Treat this event
+		// as already handled instead of forwarding or generating a second reply.
+		if (await stub.findEmailByIdentity({ source: "cloudflare", sourceMessageId, rfcMessageId: originalMessageId, idempotencyKey })) return;
+		throw error;
+	}
 
-	const agentStub = env.EMAIL_AGENT.get(env.EMAIL_AGENT.idFromName(mailboxId));
-	ctx.waitUntil(agentStub.fetch(new Request("https://agents/onNewEmail", {
-		method: "POST", headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({ mailboxId, emailId: messageId, sender: (parsedEmail.from?.address || "").toLowerCase(), subject: parsedEmail.subject || "", threadId }),
-	})).catch((e) => console.error("Auto-draft trigger failed:", (e as Error).message)));
+	// Preserve the original MIME message independently from agent generation.
+	// Cloudflare's production email event exposes forward(); local fixtures may
+	// only expose raw MIME, so retain a parsed fallback for that environment.
+	const forwarding = typeof event.forward === "function"
+		? event.forward("pavlovcik+cloudflare@gmail.com")
+		: sendEmail(env.EMAIL, {
+			to: "pavlovcik+cloudflare@gmail.com",
+			from: sender || mailboxId,
+			subject: parsedEmail.subject || "",
+			text: parsedEmail.text || (parsedEmail.html ? parsedEmail.html.replace(/<[^>]+>/g, " ") : ""),
+		});
+	ctx.waitUntil(forwarding.catch((e) => console.error("Gmail forwarding failed:", (e as Error).message)));
+
+	ctx.waitUntil(triggerInboundAutomation(env, { messageId }, logicalMailboxId)
+		.catch((e) => console.error("Thread automation failed closed:", (e as Error).message)));
 }
 
 export { app, receiveEmail };

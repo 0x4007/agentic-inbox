@@ -31,6 +31,7 @@ import {
 } from "../lib/tools";
 import { Folders, FOLDER_TOOL_DESCRIPTION, MOVE_FOLDER_TOOL_DESCRIPTION } from "../../shared/folders";
 import type { Env } from "../types";
+import { getObjectStore } from "../lib/b2-storage";
 
 // AI SDK v6 changed tool() overloads significantly. We define tools as plain
 // objects matching the Tool type to avoid overload resolution issues.
@@ -88,13 +89,13 @@ You can ONLY draft emails. You do NOT have the ability to send emails directly.
 Use discard_draft to delete drafts that the operator rejects or that are no longer needed.`;
 
 /**
- * Fetch the custom system prompt for a mailbox from its R2 settings.
+ * Fetch the custom system prompt for a mailbox from its object-store settings.
  * Falls back to DEFAULT_SYSTEM_PROMPT if none is configured.
  */
 async function getSystemPrompt(env: Env, mailboxId: string): Promise<string> {
 	try {
 		const key = `mailboxes/${mailboxId}.json`;
-		const obj = await env.BUCKET.get(key);
+		const obj = await getObjectStore(env).get(key);
 		if (obj) {
 			const settings = await obj.json<Record<string, unknown>>();
 			if (typeof settings.agentSystemPrompt === "string" && settings.agentSystemPrompt.trim()) {

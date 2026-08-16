@@ -19,6 +19,8 @@ export interface SendEmailParams {
 	cc?: string | string[];
 	bcc?: string | string[];
 	replyTo?: string | { email: string; name: string };
+	/** Gmail thread ID for transports that support explicit Gmail threading. */
+	threadId?: string;
 	attachments?: {
 		content: string; // base64 encoded
 		filename: string;

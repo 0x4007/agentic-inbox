@@ -2,7 +2,15 @@
 // Licensed under the Apache 2.0 license found in the LICENSE file or at:
 //     https://opensource.org/licenses/Apache-2.0
 
-import type { Email, Folder, Mailbox } from "~/types";
+import type {
+	Email,
+	Folder,
+	GmailConnectionStatus,
+	GmailThreadImportResponse,
+	Mailbox,
+	ThreadAutomation,
+	ThreadAutomationUpdate,
+} from "~/types";
 
 const REQUEST_TIMEOUT_MS = 30_000;
 
@@ -98,6 +106,28 @@ const api = {
 	// Config
 	getConfig: () =>
 		get<{ domains: string[]; emailAddresses: string[] }>("/api/v1/config"),
+
+	// Gmail thread activation
+	getGmailStatus: () =>
+		get<GmailConnectionStatus>("/api/v1/gmail/status"),
+	getGmailOAuthStartUrl: (returnPath: string) =>
+		`/api/v1/gmail/oauth/start?${new URLSearchParams({ returnPath })}`,
+	importGmailThread: (gmailThreadId: string) =>
+		post<GmailThreadImportResponse>("/api/v1/gmail/threads/import", {
+			gmailThreadId,
+		}),
+	getThreadAutomation: (threadId: string) =>
+		get<ThreadAutomation>(
+			`/api/v1/threads/${encodeURIComponent(threadId)}/automation`,
+		),
+	updateThreadAutomation: (
+		threadId: string,
+		update: ThreadAutomationUpdate,
+	) =>
+		put<ThreadAutomation>(
+			`/api/v1/threads/${encodeURIComponent(threadId)}/automation`,
+			update,
+		),
 
 	// Mailboxes
 	listMailboxes: () => get<Mailbox[]>("/api/v1/mailboxes"),

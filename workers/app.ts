@@ -6,6 +6,7 @@ import { routeAgentRequest } from "agents";
 import { Hono } from "hono";
 import { jwtVerify, createRemoteJWKSet } from "jose";
 import { createRequestHandler } from "react-router";
+import { toIncomingEmailEvent } from "./lib/incoming-event";
 import { app as apiApp, receiveEmail } from "./index";
 import { EmailMCP } from "./mcp";
 import type { Env } from "./types";
@@ -111,12 +112,22 @@ app.all("*", (c) => {
 export default {
 	fetch: app.fetch,
 	async email(
-		event: { raw: ReadableStream; rawSize: number },
+		event: {
+			raw: ReadableStream;
+			rawSize: number;
+			from?: string;
+			to?: string;
+			forward?: (recipient: string, headers?: Headers) => Promise<{ messageId: string }>;
+			reply?: (message: EmailMessage) => Promise<{ messageId: string }>;
+		},
 		env: Env,
 		ctx: ExecutionContext,
 	) {
 		try {
-			await receiveEmail(event, env, ctx);
+			// Copy the fields explicitly rather than spreading the runtime message:
+			// WebIDL host-object getters (raw/rawSize) are not own enumerable
+			// properties, so a spread would leave receiveEmail with undefined raw.
+			await receiveEmail(toIncomingEmailEvent(event), env, ctx);
 		} catch (e) {
 			console.error("Failed to process incoming email:", (e as Error).message, (e as Error).stack);
 			// Re-throw so Cloudflare's email routing can retry delivery or bounce the message.
