@@ -3,9 +3,18 @@
 //     https://opensource.org/licenses/Apache-2.0
 
 import { Button, Input, Tooltip } from "@cloudflare/kumo";
-import { GearSixIcon, ListIcon, MagnifyingGlassIcon, RobotIcon, XIcon } from "@phosphor-icons/react";
+import {
+	GearSixIcon,
+	ListIcon,
+	MagnifyingGlassIcon,
+	MoonIcon,
+	RobotIcon,
+	SunIcon,
+	XIcon,
+} from "@phosphor-icons/react";
 import { type KeyboardEvent, useEffect, useState } from "react";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router";
+import { useColorMode } from "~/hooks/useColorMode";
 import { useUIStore } from "~/hooks/useUIStore";
 
 export default function Header() {
@@ -16,6 +25,7 @@ export default function Header() {
 	const location = useLocation();
 	const [searchParams] = useSearchParams();
 	const { toggleSidebar, toggleAgentPanel, isAgentPanelOpen } = useUIStore();
+	const { colorMode, toggleColorMode } = useColorMode();
 
 	// Sync search input with URL query param so it stays populated
 	const urlQuery = searchParams.get("q") || "";
@@ -119,6 +129,25 @@ export default function Header() {
 			)}
 
 			<div className="flex items-center gap-1 ml-auto shrink-0">
+				<Tooltip
+					content={`Switch to ${colorMode === "dark" ? "light" : "dark"} mode`}
+					side="bottom"
+					asChild
+				>
+					<Button
+						variant="ghost"
+						shape="square"
+						icon={
+							colorMode === "dark" ? (
+								<SunIcon size={20} />
+							) : (
+								<MoonIcon size={20} />
+							)
+						}
+						onClick={toggleColorMode}
+						aria-label={`Switch to ${colorMode === "dark" ? "light" : "dark"} mode`}
+					/>
+				</Tooltip>
 				<Tooltip content={isAgentPanelOpen ? "Hide agent panel" : "Show agent panel"} side="bottom" asChild>
 					<Button
 						variant={isAgentPanelOpen ? "secondary" : "ghost"}

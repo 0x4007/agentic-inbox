@@ -16,7 +16,6 @@ import { forwardRef, useState } from "react";
 import {
 	isRouteErrorResponse,
 	Links,
-	Meta,
 	Outlet,
 	Link as RouterLink,
 	Scripts,
@@ -77,8 +76,47 @@ const KumoLink = forwardRef<
 
 export function Layout({ children }: { children: React.ReactNode }) {
 	return (
-		<html lang="en">
+		<html lang="en" suppressHydrationWarning>
 			<head>
+				<style>{`
+					:root {
+						background: #f7f8f8;
+						color-scheme: light;
+					}
+
+					@media (prefers-color-scheme: dark) {
+						:root {
+							background: #1d1f23;
+							color-scheme: dark;
+						}
+					}
+
+					:root[data-mode="dark"] {
+						background: #1d1f23;
+						color-scheme: dark;
+					}
+
+					:root[data-mode="light"] {
+						background: #f7f8f8;
+						color-scheme: light;
+					}
+				`}</style>
+				<script
+					// Apply the saved or system theme before styles load to avoid a light-mode flash.
+					dangerouslySetInnerHTML={{
+						__html: `(() => {
+  try {
+    const stored = localStorage.getItem("agentic-inbox-color-mode");
+    const mode = stored === "dark" || stored === "light"
+      ? stored
+      : matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    document.documentElement.dataset.mode = mode;
+    document.documentElement.style.background = mode === "dark" ? "#1d1f23" : "#f7f8f8";
+    document.documentElement.style.colorScheme = mode;
+  } catch {}
+})();`,
+					}}
+				/>
 				<meta charSet="UTF-8" />
 				<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 				<link
@@ -89,7 +127,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
 				/>
 				<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 				<title>Agentic Inbox</title>
-				<Meta />
 				<Links />
 			</head>
 			<body className="bg-kumo-recessed text-kumo-default antialiased">
