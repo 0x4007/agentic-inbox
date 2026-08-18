@@ -3,10 +3,12 @@
 //     https://opensource.org/licenses/Apache-2.0
 
 import { Button, Tooltip } from "@cloudflare/kumo";
+import { Folders } from "shared/folders";
 import { useEffect, useRef, useState } from "react";
 import {
 	ArrowBendUpLeftIcon,
 	ArrowBendUpRightIcon,
+	ArchiveIcon,
 	ArrowLeftIcon,
 	ChatCircleIcon,
 	CodeIcon,
@@ -167,6 +169,18 @@ export default function EmailPanelToolbar({
 			</Tooltip>
 
 			<MoveToFolderMenu folders={moveToFolders} onMove={onMove} />
+			{email.folder_id !== Folders.ARCHIVE && !isDraftFolder && (
+				<Tooltip content="Archive" side="bottom" asChild>
+					<Button
+						variant="ghost"
+						shape="square"
+						size="sm"
+						icon={<ArchiveIcon size={18} />}
+						onClick={() => onMove(Folders.ARCHIVE)}
+						aria-label="Archive"
+					/>
+				</Tooltip>
+			)}
 
 			<div className="ml-auto flex items-center gap-0.5">
 				<Tooltip content="View source" side="bottom" asChild>
