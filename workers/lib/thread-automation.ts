@@ -342,7 +342,18 @@ export class InboundAutomationService {
 		const threadId = await this.#store.resolveThreadForMessage(inbound.id);
 		if (!threadId) return { status: "ignored", reason: "unmatched" };
 
-		const automation = toThreadAutomation(await this.#store.getThreadAutomation(threadId));
+		const automation = toThreadAutomation(await this.#store.getThreadAutomation(threadId)) ?? (input.forceDraft ? {
+			threadId,
+			gmailThreadId: null,
+			mode: "none" as const,
+			goalPrompt: "",
+			privateNotes: "",
+			lastProcessedMessageId: null,
+			lastAction: "none" as const,
+			lastError: null,
+			createdAt: "",
+			updatedAt: "",
+		} : null);
 		if (!automation || (automation.mode === "none" && !input.forceDraft)) return { status: "ignored", reason: "disabled" };
 		if (input.forceDraft) await this.#store.resetProcessingReceipt?.(inbound.id);
 
