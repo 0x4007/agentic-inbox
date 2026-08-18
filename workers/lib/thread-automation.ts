@@ -93,6 +93,7 @@ interface MailboxAutomationRpc {
 		privateNotes: string;
 	}): Promise<unknown>;
 	claimProcessingReceipt(messageId: string, threadId: string): Promise<boolean>;
+	resetProcessingReceipt(messageId: string): Promise<boolean>;
 	updateProcessingReceipt(messageId: string, status: ProcessingStatus, error?: string | null): Promise<void>;
 	finalizeProcessing(
 		messageId: string,
@@ -451,6 +452,7 @@ export function createAutomationStore(env: Env, mailboxId = PAVLOVCIK_LOGICAL_IN
 		getThreadAutomation: async (threadId) => (await stub.getThreadAutomation(threadId)) as UnknownRecord | null,
 		upsertThreadAutomation: async (input) => (await stub.upsertThreadAutomation(input)) as UnknownRecord | null,
 		claimProcessingReceipt: (messageId, threadId) => stub.claimProcessingReceipt(messageId, threadId),
+		resetProcessingReceipt: (messageId) => stub.resetProcessingReceipt(messageId),
 		updateProcessingReceipt: (messageId, status, error) => stub.updateProcessingReceipt(messageId, status, error),
 		finalizeProcessing: (messageId, threadId, status, action, error) => stub.finalizeProcessing(messageId, threadId, status, action, error),
 		createEmail: async (folder, email, attachments) => {

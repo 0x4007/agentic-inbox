@@ -62,7 +62,10 @@ export default function EmailPanel({ emailId }: { emailId: string }) {
 		if (!target || isMakingDraft) return;
 		setIsMakingDraft(true);
 		try {
-			await api.makeDraft(target.id);
+			const result = await api.makeDraft(target.id);
+			if (result.status !== "drafted") {
+				throw new Error(result.error || `Draft generation ${result.status}`);
+			}
 			toastManager.add({ title: "Draft generated" });
 			await Promise.all([
 				queryClient.invalidateQueries({ queryKey: ["emails"] }),
