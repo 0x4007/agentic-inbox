@@ -332,7 +332,7 @@ export async function gmailBackfill(c: AgentContext) {
 	try {
 		const refreshToken = await decryptRefreshToken(encryptedRefreshToken, configuration.tokenEncryptionKey);
 		const accessToken = await refreshGmailAccessToken({ refreshToken, clientId: configuration.clientId, clientSecret: configuration.clientSecret, storedScope: scope });
-		const page = await listGmailThreads(accessToken, { pageToken, maxResults: 50 });
+		const page = await listGmailThreads(accessToken, { pageToken, maxResults: 50, query: "in:inbox" });
 		let threadCount = 0;
 		let importedMessageCount = 0;
 		for (const summary of page.threads ?? []) {

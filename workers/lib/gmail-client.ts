@@ -177,10 +177,15 @@ async function gmailGet<T>(path: string, accessToken: string, fetcher: Fetcher):
 		throw new GmailApiError("Gmail API request failed", 502);
 	}
 	if (!response.ok) {
+		let detail = "";
+		try {
+			const payload = await response.clone().json() as { error?: { message?: string } };
+			detail = typeof payload.error?.message === "string" ? `: ${payload.error.message}` : "";
+		} catch { /* non-JSON error */ }
 		const status = response.status === 401 || response.status === 403
 			? 401
 			: 502;
-		throw new GmailApiError("Gmail API request failed", status);
+		throw new GmailApiError(`Gmail API request failed (${response.status})${detail}`, status);
 	}
 	try {
 		return await response.json() as T;
