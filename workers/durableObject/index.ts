@@ -661,6 +661,25 @@ export class MailboxDO extends DurableObject<Env> {
 		return true;
 	}
 
+	async refreshGmailEmail(id: string, email: EmailData, folderId: string) {
+		this.db.update(schema.emails).set({
+			folder_id: folderId,
+			subject: email.subject,
+			sender: email.sender,
+			recipient: email.recipient,
+			cc: email.cc ?? null,
+			bcc: email.bcc ?? null,
+			date: email.date,
+			body: email.body,
+			read: email.read ? 1 : 0,
+			in_reply_to: email.in_reply_to ?? null,
+			email_references: email.email_references ?? null,
+			raw_headers: email.raw_headers ?? null,
+			thread_id: email.thread_id ?? null,
+		}).where(eq(schema.emails.id, id)).run();
+		return true;
+	}
+
 	// ── Search (raw SQL — dynamic condition builder) ───────────────
 
 	/**

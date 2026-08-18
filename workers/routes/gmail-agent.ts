@@ -41,6 +41,7 @@ type GmailMailbox = Pick<
 	| "createEmail"
 	| "moveEmail"
 	| "rethreadEmail"
+	| "refreshGmailEmail"
 >;
 
 interface GmailConfiguration {
@@ -321,6 +322,7 @@ export async function gmailBackfill(c: AgentContext) {
 			? String((body as Record<string, unknown>).pageToken)
 			: undefined
 		: undefined;
+	const forceRefresh = Boolean(body && typeof body === "object" && !Array.isArray(body) && (body as Record<string, unknown>).force);
 	await ensureLogicalMailbox(c);
 	const stub = mailbox(c);
 	const credentials = await stub.getGmailCredentialsForUse(GMAIL_CREDENTIAL_ID);
@@ -336,7 +338,7 @@ export async function gmailBackfill(c: AgentContext) {
 		for (const summary of page.threads ?? []) {
 			if (!summary.id) continue;
 			const thread = await getGmailThread(summary.id, accessToken);
-			const result = await importGmailThread({ gmailThreadId: summary.id, thread, store: stub as unknown as GmailImportStore });
+			const result = await importGmailThread({ gmailThreadId: summary.id, thread, store: stub as unknown as GmailImportStore, forceRefresh });
 			await retainGmailThreadIdentity(stub, result.threadId, summary.id);
 			threadCount++;
 			importedMessageCount += result.importedMessageCount;

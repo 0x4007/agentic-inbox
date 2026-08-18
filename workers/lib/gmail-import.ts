@@ -43,6 +43,7 @@ export interface GmailImportStore {
 	): Promise<void>;
 	moveEmail?(id: string, folderId: string): Promise<boolean>;
 	rethreadEmail?(id: string, threadId: string): Promise<boolean>;
+	refreshGmailEmail?(id: string, email: GmailStoredEmail, folderId: string): Promise<boolean>;
 }
 
 export interface GmailThreadImportResult {
@@ -256,6 +257,7 @@ export async function importGmailThread(input: {
 	gmailThreadId: string;
 	thread: GmailThread;
 	store: GmailImportStore;
+	forceRefresh?: boolean;
 }): Promise<GmailThreadImportResult> {
 	if (input.thread.id && input.thread.id !== input.gmailThreadId) {
 		throw new GmailImportError("Gmail returned a different thread than requested");
@@ -291,6 +293,9 @@ export async function importGmailThread(input: {
 			const existingThreadId = recordString(existing, "thread_id");
 			if (existingThreadId && existingThreadId !== threadId && input.store.rethreadEmail && typeof (existing as Record<string, unknown>).id === "string") {
 				await input.store.rethreadEmail(String((existing as Record<string, unknown>).id), threadId);
+			}
+			if (input.forceRefresh && input.store.refreshGmailEmail && typeof (existing as Record<string, unknown>).id === "string") {
+				await input.store.refreshGmailEmail(String((existing as Record<string, unknown>).id), toStoredEmail(message, threadId), gmailFolder(message));
 			}
 			if (input.store.moveEmail && typeof (existing as Record<string, unknown>).id === "string") {
 				await input.store.moveEmail(String((existing as Record<string, unknown>).id), gmailFolder(message));

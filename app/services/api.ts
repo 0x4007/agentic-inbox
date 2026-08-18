@@ -116,10 +116,10 @@ const api = {
 		post<GmailThreadImportResponse>("/api/v1/gmail/threads/import", {
 			gmailThreadId,
 		}),
-	backfillGmail: (pageToken?: string) =>
+	backfillGmail: (pageToken?: string, force = false) =>
 		post<{ threadCount: number; importedMessageCount: number; nextPageToken: string | null }>(
 			"/api/v1/gmail/backfill",
-			pageToken ? { pageToken } : {},
+			{ ...(pageToken ? { pageToken } : {}), ...(force ? { force: true } : {}) },
 		),
 	getThreadAutomation: (threadId: string) =>
 		get<ThreadAutomation>(
