@@ -1,6 +1,8 @@
 import {
 	GMAIL_READONLY_SCOPE,
+	GMAIL_DRAFTS_SCOPE,
 	hasGmailReadonlyScope,
+	hasGmailDraftScope,
 } from "./gmail-oauth";
 
 export const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
@@ -192,6 +194,27 @@ async function gmailGet<T>(path: string, accessToken: string, fetcher: Fetcher):
 	} catch {
 		throw new GmailApiError("Gmail returned an invalid API response", 502);
 	}
+}
+
+function base64Url(value: string): string {
+	const bytes = new TextEncoder().encode(value);
+	let binary = "";
+	for (const byte of bytes) binary += String.fromCharCode(byte);
+	return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+export async function createGmailDraft(input: { accessToken: string; to: string; subject: string; body: string; inReplyTo?: string | null; references?: string | null; fetcher?: Fetcher }): Promise<{ id: string }> {
+	const headers = [`To: ${input.to}`, `Subject: ${input.subject}`, "Content-Type: text/html; charset=UTF-8", "MIME-Version: 1.0"];
+	if (input.inReplyTo) headers.push(`In-Reply-To: <${input.inReplyTo}>`);
+	if (input.references) headers.push(`References: ${input.references}`);
+	const response = await (input.fetcher ?? fetch)(GMAIL_API_BASE_URL + "/drafts", {
+		method: "POST", headers: { Authorization: `Bearer ${input.accessToken}`, "Content-Type": "application/json" },
+		body: JSON.stringify({ message: { raw: base64Url(`${headers.join("\r\n")}\r\n\r\n${input.body}`) } }),
+	});
+	if (!response.ok) throw new GmailApiError(`Gmail draft create failed (${response.status})`, response.status === 401 || response.status === 403 ? 401 : 502);
+	const result = await response.json() as { id?: string };
+	if (!result.id) throw new GmailApiError("Gmail returned an invalid draft", 502);
+	return { id: result.id };
 }
 
 export async function getGmailProfile(

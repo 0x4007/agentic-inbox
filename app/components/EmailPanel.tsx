@@ -19,6 +19,7 @@ import { useDeleteEmail, useEmail, useMoveEmail, useReplyToEmail, useSendEmail, 
 import { useFolders } from "~/queries/folders";
 import { useMailbox } from "~/queries/mailboxes";
 import { useUIStore } from "~/hooks/useUIStore";
+import { queryKeys } from "~/queries/keys";
 import type { Email, Folder, Mailbox } from "~/types";
 
 function EmailPanelSkeleton() {
@@ -63,7 +64,11 @@ export default function EmailPanel({ emailId }: { emailId: string }) {
 		try {
 			await api.makeDraft(target.id);
 			toastManager.add({ title: "Draft generated" });
-			await queryClient.invalidateQueries({ queryKey: ["emails"] });
+			await Promise.all([
+				queryClient.invalidateQueries({ queryKey: ["emails"] }),
+				queryClient.invalidateQueries({ queryKey: mailboxId && email?.thread_id ? queryKeys.emails.thread(mailboxId, email.thread_id) : ["emails"] }),
+				queryClient.invalidateQueries({ queryKey: mailboxId ? queryKeys.folders.list(mailboxId) : ["folders"] }),
+			]);
 		} catch (error) { toastManager.add({ title: error instanceof Error ? error.message : "Draft generation failed", variant: "error" }); }
 		finally { setIsMakingDraft(false); }
 	};
