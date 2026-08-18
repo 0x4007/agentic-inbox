@@ -26,6 +26,7 @@ export interface AutomationStoredMessage {
 	emailReferences: string | null;
 	messageId: string | null;
 	rfcMessageId: string | null;
+	rawHeaders: string | null;
 	source: string | null;
 }
 
@@ -172,21 +173,41 @@ function nullableStringValue(value: unknown): string | null {
 	return typeof value === "string" ? value : null;
 }
 
+function headerValue(rawHeaders: string | null, name: string): string | null {
+	if (!rawHeaders) return null;
+	try {
+		const headers = JSON.parse(rawHeaders) as Array<{ key?: unknown; name?: unknown; value?: unknown }>;
+		const header = headers.find((item) => String(item.key ?? item.name ?? "").toLowerCase() === name.toLowerCase());
+		return typeof header?.value === "string" ? header.value : null;
+	} catch {
+		return null;
+	}
+}
+
+function addressFromHeader(value: string | null): string | null {
+	if (!value) return null;
+	return value.match(/<([^<>\s]+@[^<>\s]+)>/)?.[1]?.trim().toLowerCase()
+		?? value.match(/\b[^\s<>;,]+@[^\s<>;,]+\b/)?.[0]?.trim().toLowerCase()
+		?? null;
+}
+
 function toStoredMessage(value: UnknownRecord): AutomationStoredMessage | null {
 	const id = stringValue(value.id);
 	if (!id) return null;
+	const rawHeaders = nullableStringValue(value.raw_headers);
 	return {
 		id,
 		subject: stringValue(value.subject) ?? "",
-		sender: stringValue(value.sender) ?? "",
-		recipient: stringValue(value.recipient) ?? "",
+		sender: addressFromHeader(headerValue(rawHeaders, "from")) ?? stringValue(value.sender) ?? "",
+		recipient: addressFromHeader(headerValue(rawHeaders, "to")) ?? stringValue(value.recipient) ?? "",
 		date: stringValue(value.date) ?? "",
 		body: stringValue(value.body) ?? "",
 		inReplyTo: nullableStringValue(value.in_reply_to),
 		emailReferences: nullableStringValue(value.email_references),
-		messageId: nullableStringValue(value.message_id),
-		rfcMessageId: nullableStringValue(value.rfc_message_id),
+		messageId: nullableStringValue(value.message_id) ?? headerValue(rawHeaders, "message-id"),
+		rfcMessageId: nullableStringValue(value.rfc_message_id) ?? headerValue(rawHeaders, "message-id"),
 		source: nullableStringValue(value.source),
+		rawHeaders,
 	};
 }
 
