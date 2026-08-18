@@ -47,6 +47,12 @@ export default function EmailPanel({ emailId }: { emailId: string }) {
 	};
 	const { closePanel, startCompose } = useUIStore();
 	const toastManager = useKumoToastManager();
+	const copyThreadLink = async () => {
+		if (!email?.thread_id) return;
+		const link = `${window.location.origin}/mailbox/${encodeURIComponent(mailboxId || "")}/emails/${encodeURIComponent(folder || Folders.INBOX)}?thread=${encodeURIComponent(email.thread_id)}`;
+		await navigator.clipboard.writeText(link);
+		toastManager.add({ title: "Thread link copied" });
+	};
 	const [isSending, setIsSending] = useState(false);
 	const [sourceViewEmail, setSourceViewEmail] = useState<Email | null>(null);
 	const [expandedMessages, setExpandedMessages] = useState<Set<string>>(new Set());
@@ -174,7 +180,8 @@ export default function EmailPanel({ emailId }: { emailId: string }) {
 						}
 					}}
 					onMove={handleMove}
-					onViewSource={() => setSourceViewEmail(email)}
+								onViewSource={() => setSourceViewEmail(email)}
+								onCopyLink={copyThreadLink}
 					onDelete={handleDelete}
 				/>
 

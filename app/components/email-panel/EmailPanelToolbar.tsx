@@ -10,6 +10,7 @@ import {
 	ArrowLeftIcon,
 	ChatCircleIcon,
 	CodeIcon,
+	LinkIcon,
 	EnvelopeOpenIcon,
 	EnvelopeSimpleIcon,
 	FolderSimpleIcon,
@@ -38,6 +39,7 @@ interface EmailPanelToolbarProps {
 	onToggleRead: () => void;
 	onMove: (folderId: string) => void;
 	onViewSource: () => void;
+	onCopyLink: () => void;
 	onDelete: () => void;
 }
 
@@ -57,10 +59,14 @@ export default function EmailPanelToolbar({
 	onToggleRead,
 	onMove,
 	onViewSource,
+	onCopyLink,
 	onDelete,
 }: EmailPanelToolbarProps) {
 	return (
 		<div className="flex items-center gap-1 px-3 py-2 border-b border-kumo-line shrink-0 md:px-4">
+			<Tooltip content="Copy thread link" side="bottom" asChild>
+				<Button variant="ghost" shape="square" size="sm" icon={<LinkIcon size={18} />} onClick={onCopyLink} aria-label="Copy thread link" />
+			</Tooltip>
 			<Button
 				variant="ghost"
 				shape="square"

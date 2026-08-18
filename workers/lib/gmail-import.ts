@@ -246,6 +246,7 @@ function localThreadId(gmailThreadId: string): string {
 
 function gmailFolder(message: GmailMessage): string {
 	const labels = new Set(message.labelIds ?? []);
+	if (labels.has("DRAFT")) return Folders.DRAFT;
 	if (labels.has("TRASH")) return Folders.TRASH;
 	if (labels.has("SPAM")) return Folders.SPAM;
 	if (labels.has("SENT")) return Folders.SENT;
