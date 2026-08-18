@@ -944,6 +944,11 @@ export class MailboxDO extends DurableObject<Env> {
 		}
 	}
 
+	async resetProcessingReceipt(messageId: string) {
+		this.ctx.storage.sql.exec("DELETE FROM processing_receipts WHERE message_id = ?1", messageId);
+		return true;
+	}
+
 	async updateProcessingReceipt(messageId: string, status: "pending" | "drafted" | "sending" | "sent" | "failed", error?: string | null) {
 		this.ctx.storage.sql.exec("UPDATE processing_receipts SET status = ?2, error = ?3, updated_at = ?4 WHERE message_id = ?1", messageId, status, error ?? null, new Date().toISOString());
 	}

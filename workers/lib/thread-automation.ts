@@ -66,6 +66,7 @@ export interface AutomationStore {
 		privateNotes: string;
 	}): Promise<UnknownRecord | null>;
 	claimProcessingReceipt(messageId: string, threadId: string): Promise<boolean>;
+	resetProcessingReceipt?(messageId: string): Promise<boolean>;
 	updateProcessingReceipt(messageId: string, status: ProcessingStatus, error?: string | null): Promise<void>;
 	finalizeProcessing(
 		messageId: string,
@@ -343,6 +344,7 @@ export class InboundAutomationService {
 
 		const automation = toThreadAutomation(await this.#store.getThreadAutomation(threadId));
 		if (!automation || (automation.mode === "none" && !input.forceDraft)) return { status: "ignored", reason: "disabled" };
+		if (input.forceDraft) await this.#store.resetProcessingReceipt?.(inbound.id);
 
 		const claimed = await this.#store.claimProcessingReceipt(inbound.id, threadId);
 		if (!claimed) return { status: "duplicate", threadId };

@@ -148,6 +148,16 @@ export class AiUosChatClient {
 			clearTimeout(timeout);
 		}
 
+		if (response.status === 429) {
+			const retryAfter = Number(response.headers.get("retry-after") ?? "1");
+			await new Promise((resolve) => setTimeout(resolve, Math.min(Math.max(retryAfter * 1000, 250), 5000)));
+			response = await this.#fetcher(this.#endpoint, {
+				method: "POST",
+				headers: { Authorization: `Bearer ${this.#authToken}`, "Content-Type": "application/json", Accept: "application/json" },
+				body: JSON.stringify({ model: AI_UOS_MODEL, messages, temperature: 0.1, max_tokens: this.#maxTokens, stream: false }),
+				signal: abortController.signal,
+			});
+		}
 		if (!response.ok) {
 			throw new AiUosError("http", `Model provider returned HTTP ${response.status}`);
 		}
