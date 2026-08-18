@@ -117,6 +117,7 @@ export interface InboundAutomationDependencies {
 
 export interface InboundAutomationInput {
 	messageId: string;
+	allowGmail?: boolean;
 }
 
 export type InboundAutomationResult =
@@ -332,7 +333,7 @@ export class InboundAutomationService {
 		if (!rawInbound || !isRecord(rawInbound)) return { status: "ignored", reason: "missing" };
 		const inbound = toStoredMessage(rawInbound);
 		if (!inbound) return { status: "ignored", reason: "missing" };
-		if (inbound.source !== null && inbound.source !== "cloudflare") {
+		if (inbound.source !== null && inbound.source !== "cloudflare" && !(input.allowGmail && inbound.source === "gmail")) {
 			return { status: "ignored", reason: "non-cloudflare" };
 		}
 

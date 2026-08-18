@@ -22,6 +22,7 @@ import {
 } from "../lib/gmail-oauth";
 import { getObjectStore } from "../lib/b2-storage";
 import type { Env } from "../types";
+import { triggerInboundAutomation } from "../lib/thread-automation";
 
 export type AgentContext = Context<{ Bindings: Env }>;
 
@@ -346,6 +347,18 @@ export async function gmailBackfill(c: AgentContext) {
 		return c.json({ threadCount, importedMessageCount, nextPageToken: page.nextPageToken ?? null });
 	} catch (error) {
 		return responseForGmailError(c, error);
+	}
+}
+
+export async function gmailRegenerateDraft(c: AgentContext) {
+	const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+	const messageId = typeof body.messageId === "string" ? body.messageId : "";
+	if (!messageId) return c.json({ error: "messageId is required" }, 400);
+	try {
+		const result = await triggerInboundAutomation(c.env, { messageId, allowGmail: true });
+		return c.json(result, result.status === "failed" ? 502 : 200);
+	} catch (error) {
+		return c.json({ error: error instanceof Error ? error.message : "Draft regeneration failed" }, 502);
 	}
 }
 

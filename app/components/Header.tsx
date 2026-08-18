@@ -5,6 +5,7 @@
 import { Button, Input, Tooltip } from "@cloudflare/kumo";
 import {
 	GearSixIcon,
+	BugIcon,
 	ListIcon,
 	MagnifyingGlassIcon,
 	MoonIcon,
@@ -63,6 +64,7 @@ export default function Header() {
 	};
 
 	const isSettingsActive = location.pathname.includes("/settings");
+	const isDebugActive = location.pathname.includes("/debug");
 
 	return (
 		<header className="flex items-center gap-2 px-3 py-2.5 bg-kumo-base border-b border-kumo-line sticky top-0 z-10 md:px-5 md:gap-4">
@@ -160,6 +162,15 @@ export default function Header() {
 							)
 						}
 						aria-label="Settings"
+					/>
+				</Tooltip>
+				<Tooltip content="Debugging tools" side="bottom" asChild>
+					<Button
+						variant={isDebugActive ? "secondary" : "ghost"}
+						shape="square"
+						icon={<BugIcon size={20} />}
+						onClick={() => navigate(isDebugActive ? `/mailbox/${mailboxId}/emails/inbox` : `/mailbox/${mailboxId}/debug`)}
+						aria-label="Debugging tools"
 					/>
 				</Tooltip>
 			</div>
