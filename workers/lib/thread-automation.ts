@@ -110,6 +110,29 @@ export interface ReplyGenerator {
 	complete(messages: readonly AiUosMessage[]): Promise<string>;
 }
 
+/** Use the configured gateway first, then the bound Workers AI model when the
+ * gateway is temporarily rate limited. Draft generation must remain useful
+ * during provider incidents; both paths still pass through the same reply
+ * validation and routing checks below. */
+function createReplyGenerator(env: Env): ReplyGenerator {
+	const primary = new AiUosChatClient({ authToken: env.UOS_AUTH_TOKEN });
+	return {
+		async complete(messages) {
+			try {
+				return await primary.complete(messages);
+			} catch (error) {
+				if (!(error instanceof AiUosError) || error.kind !== "http") throw error;
+				const response = await env.AI.run(
+					"@cf/meta/llama-3.1-8b-instruct-fast" as keyof AiModels,
+					{ messages, max_tokens: 600, temperature: 0.1 },
+				) as { response?: string };
+				if (!response.response?.trim()) throw error;
+				return validateAiUosReplyBody(response.response);
+			}
+		},
+	};
+}
+
 export interface InboundAutomationDependencies {
 	store: AutomationStore;
 	model: ReplyGenerator;
@@ -487,7 +510,7 @@ export async function triggerInboundAutomation(
 ): Promise<InboundAutomationResult> {
 	const service = new InboundAutomationService({
 		store: createAutomationStore(env, mailboxId),
-		model: new AiUosChatClient({ authToken: env.UOS_AUTH_TOKEN }),
+		model: createReplyGenerator(env),
 		send: options.send
 			?? ((params) => sendEmail(env.EMAIL, params)),
 	});
