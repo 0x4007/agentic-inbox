@@ -85,11 +85,9 @@ export function validateGmailReturnPath(
 
 	const request = new URL(requestUrl);
 	const destination = new URL(returnPath, request.origin);
-	if (
-		destination.origin !== request.origin ||
-		!destination.pathname.startsWith("/activate/gmail/") ||
-		destination.pathname.length <= "/activate/gmail/".length
-	) {
+	const allowed = destination.pathname.startsWith("/activate/gmail/") && destination.pathname.length > "/activate/gmail/".length
+		|| /^\/mailbox\/[^/]+\/(debug|settings)$/.test(destination.pathname);
+	if (destination.origin !== request.origin || !allowed) {
 		throw new GmailOAuthError("Invalid Gmail activation return path");
 	}
 
