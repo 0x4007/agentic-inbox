@@ -27,6 +27,7 @@ import {
 	useDeleteEmail,
 	useEmails,
 	useMarkThreadRead,
+	useMoveEmail,
 	useThreadReplies,
 	useUpdateEmail,
 } from "~/queries/emails";
@@ -161,6 +162,7 @@ export default function EmailListRoute() {
 	const updateEmail = useUpdateEmail();
 	const markThreadRead = useMarkThreadRead();
 	const deleteEmail = useDeleteEmail();
+	const moveEmail = useMoveEmail();
 
 	const params = useMemo(
 		() => ({
@@ -452,6 +454,19 @@ export default function EmailListRoute() {
 															});
 													}}
 													aria-label={email.read ? "Mark unread" : "Mark read"}
+												/>
+											</Tooltip>
+											<Tooltip content="Archive" asChild>
+												<Button
+													variant="ghost"
+													shape="square"
+													size="sm"
+													icon={<ArchiveIcon size={14} />}
+													onClick={(e) => {
+														e.stopPropagation();
+														if (mailboxId) moveEmail.mutate({ mailboxId, id: email.id, folderId: Folders.ARCHIVE });
+													}}
+													aria-label="Archive"
 												/>
 											</Tooltip>
 											<Tooltip content="Delete" asChild>
