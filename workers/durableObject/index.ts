@@ -956,6 +956,7 @@ export class MailboxDO extends DurableObject<Env> {
 	async resolveThreadForMessage(messageId: string) {
 		const inbound = [...this.ctx.storage.sql.exec("SELECT id, thread_id, in_reply_to, email_references FROM emails WHERE id = ?1", messageId)][0] as Record<string, string | null> | undefined;
 		if (!inbound) return null;
+		if (inbound.thread_id) return inbound.thread_id;
 		const refs = [inbound.in_reply_to, ...(inbound.email_references ? (() => { try { return JSON.parse(inbound.email_references) as string[]; } catch { return []; } })() : [])].filter(Boolean) as string[];
 		if (refs.length === 0) return null;
 		return this.findThreadByRfcReferences(refs);
