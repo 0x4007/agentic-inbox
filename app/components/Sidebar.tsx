@@ -14,7 +14,7 @@ import {
 	TrashIcon,
 	TrayIcon,
 } from "@phosphor-icons/react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { NavLink, useNavigate, useParams } from "react-router";
 import { Folders, SYSTEM_FOLDER_IDS } from "shared/folders";
@@ -91,34 +91,24 @@ export default function Sidebar() {
 		queryFn: () => api.getGmailStatus(),
 		staleTime: 30_000,
 	});
-	const [backfilling, setBackfilling] = useState(false);
-	const [backfillMessage, setBackfillMessage] = useState<string | null>(null);
-
-	const handleBackfill = async () => {
-		if (backfilling) return;
-		setBackfilling(true);
-		setBackfillMessage(null);
-		let pageToken: string | undefined;
-		let threads = 0;
-		let messages = 0;
-		try {
+	const backfillStarted = useRef(false);
+	useEffect(() => {
+		if (!gmailStatus?.connected || backfillStarted.current) return;
+		backfillStarted.current = true;
+		let cancelled = false;
+		(async () => {
+			let pageToken: string | undefined;
 			do {
 				const result = await api.backfillGmail(pageToken);
-				threads += result.threadCount;
-				messages += result.importedMessageCount;
 				pageToken = result.nextPageToken ?? undefined;
-			} while (pageToken);
-			await Promise.all([
+			} while (pageToken && !cancelled);
+			if (!cancelled) await Promise.all([
 				queryClient.invalidateQueries({ queryKey: queryKeys.folders.list(mailboxId ?? "") }),
 				queryClient.invalidateQueries({ queryKey: ["emails"] }),
 			]);
-			setBackfillMessage(`${threads} threads synced${messages ? `, ${messages} new messages` : ""}`);
-		} catch (error) {
-			setBackfillMessage(error instanceof Error ? error.message : "Gmail backfill failed");
-		} finally {
-			setBackfilling(false);
-		}
-	};
+		})().catch(() => {});
+		return () => { cancelled = true; };
+	}, [gmailStatus?.connected, mailboxId, queryClient]);
 
 	const customFolders = useMemo(
 		() =>
@@ -193,15 +183,6 @@ export default function Sidebar() {
 					Compose
 				</Button>
 			</div>
-			{gmailStatus?.connected && (
-				<div className="px-3 pb-3">
-					<Button variant="secondary" size="sm" className="w-full" onClick={handleBackfill} disabled={backfilling}>
-						{backfilling ? "Syncing Gmail…" : "Sync Gmail inbox"}
-					</Button>
-					{backfillMessage && <p className="mt-1.5 px-1 text-xs text-kumo-subtle" role="status">{backfillMessage}</p>}
-				</div>
-			)}
-
 			{/* Navigation */}
 			<nav className="flex-1 overflow-y-auto px-2 space-y-0.5">
 				{SYSTEM_FOLDER_LINKS.map((folder) => (

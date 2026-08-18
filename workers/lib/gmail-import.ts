@@ -42,6 +42,7 @@ export interface GmailImportStore {
 		attachments: unknown[],
 	): Promise<void>;
 	moveEmail?(id: string, folderId: string): Promise<boolean>;
+	rethreadEmail?(id: string, threadId: string): Promise<boolean>;
 }
 
 export interface GmailThreadImportResult {
@@ -119,6 +120,44 @@ function htmlToText(html: string): string {
 		.trim();
 }
 
+function escapeHtml(value: string): string {
+	return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+function plainTextToHtml(value: string): string {
+	const lines = value.replace(/\r\n?/g, "\n").split("\n");
+	const output: string[] = [];
+	let paragraph: string[] = [];
+	let quote: string[] = [];
+	const flushParagraph = () => {
+		if (paragraph.length) {
+			output.push(`<p>${paragraph.map(escapeHtml).join("<br>")}</p>`);
+			paragraph = [];
+		}
+	};
+	const flushQuote = () => {
+		if (quote.length) {
+			output.push(`<blockquote>${quote.map((line) => escapeHtml(line.replace(/^> ?/, ""))).join("<br>")}</blockquote>`);
+			quote = [];
+		}
+	};
+	for (const line of lines) {
+		if (/^\s*>/.test(line)) {
+			flushParagraph();
+			quote.push(line);
+		} else if (!line.trim()) {
+			flushParagraph();
+			flushQuote();
+		} else {
+			flushQuote();
+			paragraph.push(line);
+		}
+	}
+	flushParagraph();
+	flushQuote();
+	return output.join("");
+}
+
 function collectBodies(
 	part: GmailMessagePart | undefined,
 	plainText: string[],
@@ -169,7 +208,7 @@ function toStoredEmail(message: GmailMessage, threadId: string): GmailStoredEmai
 		cc: headerValue(headers, "cc").toLowerCase() || null,
 		bcc: headerValue(headers, "bcc").toLowerCase() || null,
 		date: messageDate(message, headers),
-		body: gmailPlainTextBody(message.payload),
+		body: plainTextToHtml(gmailPlainTextBody(message.payload)),
 		read: !(message.labelIds ?? []).includes("UNREAD"),
 		in_reply_to: inReplyTo,
 		email_references: references.length > 0 ? JSON.stringify(references) : null,
@@ -235,23 +274,14 @@ export async function importGmailThread(input: {
 		})
 		.map(({ message }) => message);
 
-	let threadId: string | null = null;
+	const threadId = localThreadId(input.gmailThreadId);
 	for (const message of ordered) {
 		if (message.threadId && message.threadId !== input.gmailThreadId) {
 			throw new GmailImportError("Gmail returned a message from another thread");
 		}
 		const existing = await input.store.findEmailByIdentity(messageIdentity(message));
 		const existingThreadId = recordString(existing, "thread_id");
-		if (!existingThreadId) continue;
-		if (threadId && threadId !== existingThreadId) {
-			throw new GmailImportError(
-				"Gmail thread maps to more than one local thread",
-				409,
-			);
-		}
-		threadId = existingThreadId;
 	}
-	threadId ??= localThreadId(input.gmailThreadId);
 
 	let importedMessageCount = 0;
 	for (const message of ordered) {
@@ -259,11 +289,8 @@ export async function importGmailThread(input: {
 		const existing = await input.store.findEmailByIdentity(identity);
 		if (existing) {
 			const existingThreadId = recordString(existing, "thread_id");
-			if (existingThreadId && existingThreadId !== threadId) {
-				throw new GmailImportError(
-					"Gmail thread maps to more than one local thread",
-					409,
-				);
+			if (existingThreadId && existingThreadId !== threadId && input.store.rethreadEmail && typeof (existing as Record<string, unknown>).id === "string") {
+				await input.store.rethreadEmail(String((existing as Record<string, unknown>).id), threadId);
 			}
 			if (input.store.moveEmail && typeof (existing as Record<string, unknown>).id === "string") {
 				await input.store.moveEmail(String((existing as Record<string, unknown>).id), gmailFolder(message));
@@ -281,11 +308,8 @@ export async function importGmailThread(input: {
 			const raced = await input.store.findEmailByIdentity(identity);
 			if (!raced) throw error;
 			const racedThreadId = recordString(raced, "thread_id");
-			if (racedThreadId && racedThreadId !== threadId) {
-				throw new GmailImportError(
-					"Gmail thread maps to more than one local thread",
-					409,
-				);
+			if (racedThreadId && racedThreadId !== threadId && input.store.rethreadEmail && typeof (raced as Record<string, unknown>).id === "string") {
+				await input.store.rethreadEmail(String((raced as Record<string, unknown>).id), threadId);
 			}
 		}
 	}

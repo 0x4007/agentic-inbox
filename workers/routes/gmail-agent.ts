@@ -40,6 +40,7 @@ type GmailMailbox = Pick<
 	| "findEmailByIdentity"
 	| "createEmail"
 	| "moveEmail"
+	| "rethreadEmail"
 >;
 
 interface GmailConfiguration {

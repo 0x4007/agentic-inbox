@@ -652,6 +652,15 @@ export class MailboxDO extends DurableObject<Env> {
 		return true;
 	}
 
+	async rethreadEmail(id: string, threadId: string) {
+		this.db
+			.update(schema.emails)
+			.set({ thread_id: threadId })
+			.where(eq(schema.emails.id, id))
+			.run();
+		return true;
+	}
+
 	// ── Search (raw SQL — dynamic condition builder) ───────────────
 
 	/**
