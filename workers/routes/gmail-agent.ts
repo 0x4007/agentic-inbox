@@ -5,6 +5,7 @@ import {
 	exchangeGmailAuthorizationCode,
 	getGmailProfile,
 	getGmailThread,
+	listGmailThreads,
 	refreshGmailAccessToken,
 } from "../lib/gmail-client";
 import {
@@ -38,6 +39,7 @@ type GmailMailbox = Pick<
 	| "upsertThreadAutomation"
 	| "findEmailByIdentity"
 	| "createEmail"
+	| "moveEmail"
 >;
 
 interface GmailConfiguration {
@@ -302,6 +304,43 @@ export async function gmailImport(c: AgentContext) {
 		});
 		await retainGmailThreadIdentity(stub, result.threadId, gmailThreadId);
 		return c.json({ threadId: result.threadId });
+	} catch (error) {
+		return responseForGmailError(c, error);
+	}
+}
+
+/** Import one Gmail inbox page and reconcile Gmail folder labels locally. */
+export async function gmailBackfill(c: AgentContext) {
+	const configuration = gmailConfiguration(c);
+	if (!configuration) return c.json({ error: "Gmail OAuth is not configured" }, 503);
+	let body: unknown = {};
+	try { body = await c.req.json(); } catch { /* empty body is valid */ }
+	const pageToken: string | undefined = body && typeof body === "object" && !Array.isArray(body)
+		? typeof (body as Record<string, unknown>).pageToken === "string"
+			? String((body as Record<string, unknown>).pageToken)
+			: undefined
+		: undefined;
+	await ensureLogicalMailbox(c);
+	const stub = mailbox(c);
+	const credentials = await stub.getGmailCredentialsForUse(GMAIL_CREDENTIAL_ID);
+	const encryptedRefreshToken = stringField(credentials, "encrypted_refresh_token");
+	const scope = stringField(credentials, "scope");
+	if (!encryptedRefreshToken || !scope) return c.json({ error: "Gmail is not connected" }, 409);
+	try {
+		const refreshToken = await decryptRefreshToken(encryptedRefreshToken, configuration.tokenEncryptionKey);
+		const accessToken = await refreshGmailAccessToken({ refreshToken, clientId: configuration.clientId, clientSecret: configuration.clientSecret, storedScope: scope });
+		const page = await listGmailThreads(accessToken, { pageToken, maxResults: 50 });
+		let threadCount = 0;
+		let importedMessageCount = 0;
+		for (const summary of page.threads ?? []) {
+			if (!summary.id) continue;
+			const thread = await getGmailThread(summary.id, accessToken);
+			const result = await importGmailThread({ gmailThreadId: summary.id, thread, store: stub as unknown as GmailImportStore });
+			await retainGmailThreadIdentity(stub, result.threadId, summary.id);
+			threadCount++;
+			importedMessageCount += result.importedMessageCount;
+		}
+		return c.json({ threadCount, importedMessageCount, nextPageToken: page.nextPageToken ?? null });
 	} catch (error) {
 		return responseForGmailError(c, error);
 	}

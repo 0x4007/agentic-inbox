@@ -47,6 +47,11 @@ export interface GmailThread {
 	messages?: GmailMessage[];
 }
 
+export interface GmailThreadListPage {
+	threads?: Array<{ id?: string; snippet?: string }>;
+	nextPageToken?: string;
+}
+
 export class GmailApiError extends Error {
 	constructor(
 		message: string,
@@ -213,5 +218,20 @@ export async function getGmailThread(
 		accessToken,
 		fetcher,
 	);
-}export { GMAIL_READONLY_SCOPE };
+}
 
+export async function listGmailThreads(
+	accessToken: string,
+	input: { pageToken?: string; maxResults?: number; query?: string } = {},
+	fetcher: Fetcher = fetch,
+): Promise<GmailThreadListPage> {
+	const params = new URLSearchParams({
+		maxResults: String(Math.min(Math.max(input.maxResults ?? 100, 1), 100)),
+		includeSpamTrash: "true",
+		...(input.pageToken ? { pageToken: input.pageToken } : {}),
+		...(input.query ? { q: input.query } : {}),
+	});
+	return gmailGet<GmailThreadListPage>("/threads?" + params.toString(), accessToken, fetcher);
+}
+
+export { GMAIL_READONLY_SCOPE };

@@ -15,11 +15,14 @@ import {
 	TrayIcon,
 } from "@phosphor-icons/react";
 import { useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { NavLink, useNavigate, useParams } from "react-router";
 import { Folders, SYSTEM_FOLDER_IDS } from "shared/folders";
 import { useCreateFolder, useFolders } from "~/queries/folders";
 import { useMailbox } from "~/queries/mailboxes";
 import { useUIStore } from "~/hooks/useUIStore";
+import api from "~/services/api";
+import { queryKeys } from "~/queries/keys";
 
 const FOLDER_ICONS: Record<string, React.ReactNode> = {
 	[Folders.INBOX]: <TrayIcon size={18} weight="regular" />,
@@ -82,6 +85,40 @@ export default function Sidebar() {
 	const { data: currentMailbox } = useMailbox(mailboxId);
 	const [isCreateFolderOpen, setIsCreateFolderOpen] = useState(false);
 	const [newFolderName, setNewFolderName] = useState("");
+	const queryClient = useQueryClient();
+	const { data: gmailStatus } = useQuery({
+		queryKey: queryKeys.gmail.status,
+		queryFn: () => api.getGmailStatus(),
+		staleTime: 30_000,
+	});
+	const [backfilling, setBackfilling] = useState(false);
+	const [backfillMessage, setBackfillMessage] = useState<string | null>(null);
+
+	const handleBackfill = async () => {
+		if (backfilling) return;
+		setBackfilling(true);
+		setBackfillMessage(null);
+		let pageToken: string | undefined;
+		let threads = 0;
+		let messages = 0;
+		try {
+			do {
+				const result = await api.backfillGmail(pageToken);
+				threads += result.threadCount;
+				messages += result.importedMessageCount;
+				pageToken = result.nextPageToken ?? undefined;
+			} while (pageToken);
+			await Promise.all([
+				queryClient.invalidateQueries({ queryKey: queryKeys.folders.list(mailboxId ?? "") }),
+				queryClient.invalidateQueries({ queryKey: ["emails"] }),
+			]);
+			setBackfillMessage(`${threads} threads synced${messages ? `, ${messages} new messages` : ""}`);
+		} catch (error) {
+			setBackfillMessage(error instanceof Error ? error.message : "Gmail backfill failed");
+		} finally {
+			setBackfilling(false);
+		}
+	};
 
 	const customFolders = useMemo(
 		() =>
@@ -156,6 +193,14 @@ export default function Sidebar() {
 					Compose
 				</Button>
 			</div>
+			{gmailStatus?.connected && (
+				<div className="px-3 pb-3">
+					<Button variant="secondary" size="sm" className="w-full" onClick={handleBackfill} disabled={backfilling}>
+						{backfilling ? "Syncing Gmail…" : "Sync Gmail inbox"}
+					</Button>
+					{backfillMessage && <p className="mt-1.5 px-1 text-xs text-kumo-subtle" role="status">{backfillMessage}</p>}
+				</div>
+			)}
 
 			{/* Navigation */}
 			<nav className="flex-1 overflow-y-auto px-2 space-y-0.5">

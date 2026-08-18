@@ -4,6 +4,7 @@ import type {
 	GmailMessagePart,
 	GmailThread,
 } from "./gmail-client";
+import { Folders } from "../../shared/folders";
 
 export interface GmailMessageIdentity {
 	source?: string;
@@ -36,10 +37,11 @@ export interface GmailStoredEmail {
 export interface GmailImportStore {
 	findEmailByIdentity(identity: GmailMessageIdentity): Promise<unknown | null>;
 	createEmail(
-		folder: "inbox" | "sent",
+		folder: string,
 		email: GmailStoredEmail,
 		attachments: unknown[],
 	): Promise<void>;
+	moveEmail?(id: string, folderId: string): Promise<boolean>;
 }
 
 export interface GmailThreadImportResult {
@@ -202,6 +204,15 @@ function localThreadId(gmailThreadId: string): string {
 	return "gmail:" + gmailThreadId;
 }
 
+function gmailFolder(message: GmailMessage): string {
+	const labels = new Set(message.labelIds ?? []);
+	if (labels.has("TRASH")) return Folders.TRASH;
+	if (labels.has("SPAM")) return Folders.SPAM;
+	if (labels.has("SENT")) return Folders.SENT;
+	if (labels.has("INBOX")) return Folders.INBOX;
+	return Folders.ARCHIVE;
+}
+
 export async function importGmailThread(input: {
 	gmailThreadId: string;
 	thread: GmailThread;
@@ -254,11 +265,14 @@ export async function importGmailThread(input: {
 					409,
 				);
 			}
+			if (input.store.moveEmail && typeof (existing as Record<string, unknown>).id === "string") {
+				await input.store.moveEmail(String((existing as Record<string, unknown>).id), gmailFolder(message));
+			}
 			continue;
 		}
 
 		const email = toStoredEmail(message, threadId);
-		const folder = (message.labelIds ?? []).includes("SENT") ? "sent" : "inbox";
+		const folder = gmailFolder(message);
 		try {
 			await input.store.createEmail(folder, email, []);
 			importedMessageCount++;

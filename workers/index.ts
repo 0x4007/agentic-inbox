@@ -22,7 +22,7 @@ import { Folders } from "../shared/folders";
 import type { Env } from "./types";
 import { requireMailbox, type MailboxContext } from "./lib/mailbox";
 import {
-	gmailStatus, gmailOAuthStart, gmailOAuthCallback, gmailImport,
+	gmailStatus, gmailOAuthStart, gmailOAuthCallback, gmailImport, gmailBackfill,
 } from "./routes/gmail-agent";
 import { getThreadAutomation, putThreadAutomation } from "./routes/thread-automation";
 import { triggerInboundAutomation } from "./lib/thread-automation";
@@ -108,6 +108,7 @@ app.get("/api/v1/gmail/status", gmailStatus);
 app.get("/api/v1/gmail/oauth/start", gmailOAuthStart);
 app.get("/api/v1/gmail/oauth/callback", gmailOAuthCallback);
 app.post("/api/v1/gmail/threads/import", gmailImport);
+app.post("/api/v1/gmail/backfill", gmailBackfill);
 app.get("/api/v1/threads/:threadId/automation", getThreadAutomation);
 app.put("/api/v1/threads/:threadId/automation", putThreadAutomation);
 
