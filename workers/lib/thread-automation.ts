@@ -281,7 +281,13 @@ function replyAddress(value: string): string | null {
 
 function originalAlias(value: string): string | null {
 	const candidates = value.split(",").map((entry) => entry.trim().toLowerCase());
-	return candidates.find((candidate) => /^[^\s@]+@pavlovcik\.com$/.test(candidate)) ?? null;
+	const existing = candidates.find((candidate) => /^[^\s@]+@pavlovcik\.com$/.test(candidate));
+	if (existing) return existing;
+	// Gmail imports retain the account-level To header (for example
+	// pavlovcik@gmail.com), but replies from this mailbox must use the
+	// corresponding domain alias.
+	const localPart = candidates.find((candidate) => /^[^\s@]+@[^\s@]+$/.test(candidate))?.split("@", 1)[0];
+	return localPart ? `${localPart}@pavlovcik.com` : null;
 }
 
 function replySubject(subject: string): string {
