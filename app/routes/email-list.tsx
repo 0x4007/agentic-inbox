@@ -18,7 +18,7 @@ import {
 } from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useSearchParams } from "react-router";
+import { useNavigate, useParams, useSearchParams } from "react-router";
 import { Folders } from "shared/folders";
 import { formatListDate } from "shared/dates";
 import MailboxSplitView from "~/components/MailboxSplitView";
@@ -148,6 +148,7 @@ export default function EmailListRoute() {
 		folder: string;
 	}>();
 	const [searchParams] = useSearchParams();
+	const navigate = useNavigate();
 	const requestedThreadId = searchParams.get("thread");
 	const {
 		selectedEmailId,
@@ -274,6 +275,10 @@ export default function EmailListRoute() {
 
 	const handleRowClick = (email: Email) => {
 		selectEmail(email.id);
+		if (mailboxId) {
+			const thread = email.thread_id || email.id;
+			navigate(`/mailbox/${encodeURIComponent(mailboxId)}/emails/${encodeURIComponent(folder || Folders.INBOX)}?thread=${encodeURIComponent(thread)}`);
+		}
 		if (mailboxId && hasUnread(email)) {
 			if (email.thread_id && email.thread_count && email.thread_count > 1) {
 				markThreadRead.mutate({

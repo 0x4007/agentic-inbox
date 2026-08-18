@@ -51,8 +51,8 @@ export default function EmailPanel({ emailId }: { emailId: string }) {
 	const toastManager = useKumoToastManager();
 	const queryClient = useQueryClient();
 	const copyThreadLink = async () => {
-		if (!email?.thread_id) return;
-		const link = `${window.location.origin}/mailbox/${encodeURIComponent(mailboxId || "")}/emails/${encodeURIComponent(folder || Folders.INBOX)}?thread=${encodeURIComponent(email.thread_id)}`;
+		if (!email) return;
+		const link = `${window.location.origin}/mailbox/${encodeURIComponent(mailboxId || "")}/emails/${encodeURIComponent(folder || Folders.INBOX)}?thread=${encodeURIComponent(email.thread_id || email.id)}`;
 		await navigator.clipboard.writeText(link);
 		toastManager.add({ title: "Thread link copied" });
 	};
