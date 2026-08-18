@@ -122,6 +122,7 @@ const api = {
 			{ ...(pageToken ? { pageToken } : {}), ...(force ? { force: true } : {}) },
 		),
 	regenerateGmailDraft: (messageId: string) => post<{ status: string; replyId?: string; error?: string }>("/api/v1/gmail/regenerate-draft", { messageId }),
+	makeDraft: (messageId: string) => post<{ status: string; replyId?: string; error?: string }>("/api/v1/gmail/regenerate-draft", { messageId }),
 	getThreadAutomation: (threadId: string) =>
 		get<ThreadAutomation>(
 			`/api/v1/threads/${encodeURIComponent(threadId)}/automation`,

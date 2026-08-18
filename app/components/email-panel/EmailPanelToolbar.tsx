@@ -15,6 +15,7 @@ import {
 	EnvelopeSimpleIcon,
 	FolderSimpleIcon,
 	PaperPlaneTiltIcon,
+	MagicWandIcon,
 	PencilSimpleIcon,
 	StarIcon,
 	TrashIcon,
@@ -40,6 +41,7 @@ interface EmailPanelToolbarProps {
 	onMove: (folderId: string) => void;
 	onViewSource: () => void;
 	onCopyLink: () => void;
+	onMakeDraft: () => void;
 	onDelete: () => void;
 }
 
@@ -60,6 +62,7 @@ export default function EmailPanelToolbar({
 	onMove,
 	onViewSource,
 	onCopyLink,
+	onMakeDraft,
 	onDelete,
 }: EmailPanelToolbarProps) {
 	return (
@@ -99,6 +102,7 @@ export default function EmailPanelToolbar({
 				</>
 			) : (
 				<>
+					<Button variant="secondary" size="sm" icon={<MagicWandIcon size={16} />} onClick={onMakeDraft}>Make draft</Button>
 					<Tooltip content="Reply" side="bottom" asChild>
 						<Button
 							variant="ghost"

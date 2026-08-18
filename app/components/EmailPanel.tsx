@@ -4,6 +4,7 @@
 
 import { useKumoToastManager } from "@cloudflare/kumo";
 import { useEffect, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useParams } from "react-router";
 import { Folders } from "shared/folders";
 import EmailPanelDialogs from "~/components/email-panel/EmailPanelDialogs";
@@ -47,11 +48,24 @@ export default function EmailPanel({ emailId }: { emailId: string }) {
 	};
 	const { closePanel, startCompose } = useUIStore();
 	const toastManager = useKumoToastManager();
+	const queryClient = useQueryClient();
 	const copyThreadLink = async () => {
 		if (!email?.thread_id) return;
 		const link = `${window.location.origin}/mailbox/${encodeURIComponent(mailboxId || "")}/emails/${encodeURIComponent(folder || Folders.INBOX)}?thread=${encodeURIComponent(email.thread_id)}`;
 		await navigator.clipboard.writeText(link);
 		toastManager.add({ title: "Thread link copied" });
+	};
+	const [isMakingDraft, setIsMakingDraft] = useState(false);
+	const makeDraft = async () => {
+		const target = lastReceivedMessage;
+		if (!target || isMakingDraft) return;
+		setIsMakingDraft(true);
+		try {
+			await api.makeDraft(target.id);
+			toastManager.add({ title: "Draft generated" });
+			await queryClient.invalidateQueries({ queryKey: ["emails"] });
+		} catch (error) { toastManager.add({ title: error instanceof Error ? error.message : "Draft generation failed", variant: "error" }); }
+		finally { setIsMakingDraft(false); }
 	};
 	const [isSending, setIsSending] = useState(false);
 	const [sourceViewEmail, setSourceViewEmail] = useState<Email | null>(null);
@@ -182,6 +196,7 @@ export default function EmailPanel({ emailId }: { emailId: string }) {
 					onMove={handleMove}
 								onViewSource={() => setSourceViewEmail(email)}
 								onCopyLink={copyThreadLink}
+								onMakeDraft={makeDraft}
 					onDelete={handleDelete}
 				/>
 

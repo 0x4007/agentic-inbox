@@ -355,7 +355,7 @@ export async function gmailRegenerateDraft(c: AgentContext) {
 	const messageId = typeof body.messageId === "string" ? body.messageId : "";
 	if (!messageId) return c.json({ error: "messageId is required" }, 400);
 	try {
-		const result = await triggerInboundAutomation(c.env, { messageId, allowGmail: true });
+		const result = await triggerInboundAutomation(c.env, { messageId, allowGmail: true, forceDraft: true });
 		return c.json(result, result.status === "failed" ? 502 : 200);
 	} catch (error) {
 		return c.json({ error: error instanceof Error ? error.message : "Draft regeneration failed" }, 502);

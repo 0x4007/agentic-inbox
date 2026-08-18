@@ -118,6 +118,7 @@ export interface InboundAutomationDependencies {
 export interface InboundAutomationInput {
 	messageId: string;
 	allowGmail?: boolean;
+	forceDraft?: boolean;
 }
 
 export type InboundAutomationResult =
@@ -341,7 +342,7 @@ export class InboundAutomationService {
 		if (!threadId) return { status: "ignored", reason: "unmatched" };
 
 		const automation = toThreadAutomation(await this.#store.getThreadAutomation(threadId));
-		if (!automation || automation.mode === "none") return { status: "ignored", reason: "disabled" };
+		if (!automation || (automation.mode === "none" && !input.forceDraft)) return { status: "ignored", reason: "disabled" };
 
 		const claimed = await this.#store.claimProcessingReceipt(inbound.id, threadId);
 		if (!claimed) return { status: "duplicate", threadId };
@@ -371,7 +372,7 @@ export class InboundAutomationService {
 			}
 
 			const outgoing = buildOutgoingReply(inbound, threadId, replyBody, this.#now());
-			if (automation.mode === "draft") {
+			if (input.forceDraft || automation.mode === "draft") {
 				await this.#store.createEmail(Folders.DRAFT, outgoing.email, []);
 				await this.#store.finalizeProcessing(inbound.id, threadId, "drafted", "drafted");
 				return { status: "drafted", threadId, replyId: outgoing.email.id };
