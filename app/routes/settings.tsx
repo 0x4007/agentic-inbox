@@ -5,11 +5,8 @@
 import { Badge, Button, Input, Loader, useKumoToastManager } from "@cloudflare/kumo";
 import { RobotIcon, ArrowCounterClockwiseIcon } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "react-router";
 import { useMailbox, useUpdateMailbox } from "~/queries/mailboxes";
-import api from "~/services/api";
-import { queryKeys } from "~/queries/keys";
 
 // Placeholder shown in the textarea when no custom prompt is set.
 // The authoritative default prompt lives in workers/agent/index.ts (DEFAULT_SYSTEM_PROMPT).
@@ -20,29 +17,6 @@ export default function SettingsRoute() {
 	const toastManager = useKumoToastManager();
 	const { data: mailbox } = useMailbox(mailboxId);
 	const updateMailboxMutation = useUpdateMailbox();
-	const queryClient = useQueryClient();
-	const { data: gmailStatus } = useQuery({ queryKey: queryKeys.gmail.status, queryFn: () => api.getGmailStatus() });
-	const [reimporting, setReimporting] = useState(false);
-	const [reimportResult, setReimportResult] = useState<string | null>(null);
-	const forceReimport = async () => {
-		if (reimporting) return;
-		setReimporting(true);
-		setReimportResult(null);
-		try {
-			let token: string | undefined;
-			let count = 0;
-			do {
-				const result = await api.backfillGmail(token, true);
-				count += result.threadCount;
-				token = result.nextPageToken ?? undefined;
-			} while (token);
-			await queryClient.invalidateQueries({ queryKey: ["emails"] });
-			await queryClient.invalidateQueries({ queryKey: ["folders"] });
-			setReimportResult(`${count} Gmail threads reimported`);
-		} catch (error) {
-			setReimportResult(error instanceof Error ? error.message : "Reimport failed");
-		} finally { setReimporting(false); }
-	};
 
 	const [displayName, setDisplayName] = useState("");
 	const [agentPrompt, setAgentPrompt] = useState("");
@@ -95,14 +69,6 @@ export default function SettingsRoute() {
 			<h1 className="text-lg font-semibold text-kumo-default mb-6">Settings</h1>
 
 			<div className="space-y-6">
-				{gmailStatus?.connected && (
-					<div className="rounded-lg border border-kumo-line bg-kumo-base p-5">
-						<div className="text-sm font-medium text-kumo-default mb-1">Gmail debug</div>
-						<p className="text-xs text-kumo-subtle mb-3">Re-fetch Gmail messages and rebuild their HTML rendering.</p>
-						<Button variant="secondary" size="sm" onClick={forceReimport} loading={reimporting} disabled={reimporting}>Force Gmail reimport</Button>
-						{reimportResult && <p className="mt-2 text-xs text-kumo-subtle" role="status">{reimportResult}</p>}
-					</div>
-				)}
 				{/* Account */}
 				<div className="rounded-lg border border-kumo-line bg-kumo-base p-5">
 					<div className="text-sm font-medium text-kumo-default mb-4">
