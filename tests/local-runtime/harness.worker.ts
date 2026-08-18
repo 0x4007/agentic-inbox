@@ -92,22 +92,19 @@ export default {
 		if (url.pathname === "/__test/set-automation") {
 			const threadId = typeof body.threadId === "string" ? body.threadId : "";
 			if (!threadId) return new Response("missing threadId", { status: 400 });
-			const enabled = body.enabled === true || body.enabled === 1;
-			const mode = body.mode === "auto" ? "auto" : "draft";
+			const mode = body.mode === "auto" ? "auto" : body.mode === "draft" ? "draft" : "none";
 			const goalPrompt = typeof body.goalPrompt === "string" ? body.goalPrompt : "";
 			const privateNotes = typeof body.privateNotes === "string" ? body.privateNotes : "";
 			const row = (await (stub(env as Record<string, unknown>) as unknown as {
 				upsertThreadAutomation(input: {
 					threadId: string;
 					gmailThreadId?: string | null;
-					enabled: boolean;
-					mode: "draft" | "auto";
+					mode: "none" | "draft" | "auto";
 					goalPrompt: string;
 					privateNotes: string;
 				}): Promise<unknown>;
 			}).upsertThreadAutomation({
 				threadId,
-				enabled,
 				mode,
 				goalPrompt,
 				privateNotes,
@@ -138,6 +135,14 @@ export default {
 				drafts: Array.isArray(drafts) ? drafts.length : 0,
 				storeKeys: Array.isArray(threadAutomations) ? threadAutomations : [],
 			});
+		}
+
+		if (url.pathname === "/__test/automation") {
+			const threadId = typeof body.threadId === "string" ? body.threadId : "";
+			if (!threadId) return new Response("missing threadId", { status: 400 });
+			return Response.json(await (stub(env as Record<string, unknown>) as unknown as {
+				getThreadAutomation(id: string): Promise<unknown>;
+			}).getThreadAutomation(threadId));
 		}
 
 		return new Response("harness 404", { status: 404 });

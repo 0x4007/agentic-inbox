@@ -70,6 +70,19 @@ function boolQuery(c: AppContext, key: string): boolean | undefined {
 	return v === "true" || v === "1";
 }
 
+async function ensureLocalLogicalMailbox(env: Env): Promise<void> {
+	if (!import.meta.env.DEV) return;
+	const store = getObjectStore(env);
+	const key = "mailboxes/pavlovcik.com.json";
+	if (await store.head(key)) return;
+	await store.put(key, JSON.stringify({
+		fromName: "Pavlovcik Inbox",
+		forwarding: { enabled: false, email: "" },
+		signature: { enabled: false, text: "" },
+		autoReply: { enabled: false, subject: "", message: "" },
+	}));
+}
+
 // -- App & middleware -----------------------------------------------
 
 const app = new Hono<MailboxContext>();
@@ -110,6 +123,7 @@ app.get("/api/v1/config", (c) => {
 // -- Mailboxes ------------------------------------------------------
 
 app.get("/api/v1/mailboxes", async (c) => {
+	await ensureLocalLogicalMailbox(c.env);
 	const allMailboxes = await listMailboxes(getObjectStore(c.env));
 	return c.json(allMailboxes.map((m) => ({ ...m, name: m.id })));
 });
@@ -449,7 +463,7 @@ async function receiveEmail(event: IncomingEmailEvent, env: Env, ctx: ExecutionC
 		if (subjectThread) threadId = subjectThread;
 	}
 
-	const sender = (event.from?.trim() || parsedEmail.from?.address || "").toLowerCase();
+	const sender = (parsedEmail.from?.address || event.from?.trim() || "").toLowerCase();
 	const recipient = envelopeRecipient || allRecipients.join(", ");
 	try {
 		await stub.createEmail(Folders.INBOX, {
@@ -472,6 +486,17 @@ async function receiveEmail(event: IncomingEmailEvent, env: Env, ctx: ExecutionC
 		// as already handled instead of forwarding or generating a second reply.
 		if (await stub.findEmailByIdentity({ source: "cloudflare", sourceMessageId, rfcMessageId: originalMessageId, idempotencyKey })) return;
 		throw error;
+	}
+
+	// Every received conversation is visible to the agent controls. New threads
+	// deliberately start with no draft or send action selected.
+	if (!(await stub.getThreadAutomation(threadId))) {
+		await stub.upsertThreadAutomation({
+			threadId,
+			mode: "none",
+			goalPrompt: "",
+			privateNotes: "",
+		});
 	}
 
 	// Preserve the original MIME message independently from agent generation.

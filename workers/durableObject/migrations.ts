@@ -198,4 +198,10 @@ export const mailboxMigrations: Migration[] = [
             );
         `,
 	},
+	{
+		// Watching is now automatic. Keep legacy enabled rows working as their
+		// explicit action selection, while new threads start with no action.
+		name: "10_thread_action_mode",
+		sql: `ALTER TABLE thread_automation ADD COLUMN action_mode TEXT NOT NULL DEFAULT 'legacy';`,
+	},
 ];

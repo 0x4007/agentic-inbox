@@ -1,11 +1,11 @@
-export type AutomationMode = "draft" | "auto";
+/** Every inbound thread is watched. A reply action must be opted into explicitly. */
+export type AutomationMode = "none" | "draft" | "auto";
 export type AgentAction = "none" | "drafted" | "sent" | "failed";
 export type ProcessingStatus = "pending" | "drafted" | "sending" | "sent" | "failed";
 
 export interface ThreadAutomation {
 	threadId: string;
 	gmailThreadId: string | null;
-	enabled: boolean;
 	mode: AutomationMode;
 	goalPrompt: string;
 	privateNotes: string;
@@ -18,7 +18,6 @@ export interface ThreadAutomation {
 
 export interface GmailImportRequest { gmailThreadId: string; }
 export interface ThreadAutomationUpdate {
-	enabled: boolean;
 	mode: AutomationMode;
 	goalPrompt: string;
 	privateNotes: string;

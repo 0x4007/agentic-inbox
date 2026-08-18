@@ -61,7 +61,6 @@ export interface AutomationStore {
 	upsertThreadAutomation(input: {
 		threadId: string;
 		gmailThreadId?: string | null;
-		enabled: boolean;
 		mode: AutomationMode;
 		goalPrompt: string;
 		privateNotes: string;
@@ -88,7 +87,6 @@ interface MailboxAutomationRpc {
 	upsertThreadAutomation(input: {
 		threadId: string;
 		gmailThreadId?: string | null;
-		enabled: boolean;
 		mode: AutomationMode;
 		goalPrompt: string;
 		privateNotes: string;
@@ -168,10 +166,15 @@ function toStoredMessage(value: UnknownRecord): AutomationStoredMessage | null {
 function toThreadAutomation(value: UnknownRecord | null): ThreadAutomation | null {
 	if (!value) return null;
 	const threadId = stringValue(value.thread_id) ?? stringValue(value.threadId);
-	const mode = stringValue(value.mode);
-	if (!threadId || (mode !== "draft" && mode !== "auto")) return null;
-	const enabledRaw = value.enabled;
-	const enabled = enabledRaw === true || enabledRaw === 1;
+	const storedMode = stringValue(value.mode);
+	if (!threadId || (storedMode !== "draft" && storedMode !== "auto")) return null;
+	// Rows from before automatic watching used enabled as the action toggle.
+	// Read them as no-action until a person explicitly selects Draft or Auto-send.
+	const actionMode = stringValue(value.action_mode);
+	const wasActionEnabled = value.enabled === true || value.enabled === 1;
+	const mode: AutomationMode = actionMode === "none" || actionMode === "draft" || actionMode === "auto"
+		? actionMode
+		: wasActionEnabled ? storedMode : "none";
 	const lastAction = stringValue(value.last_action) ?? stringValue(value.lastAction) ?? "none";
 	if (lastAction !== "none" && lastAction !== "drafted" && lastAction !== "sent" && lastAction !== "failed") {
 		return null;
@@ -179,7 +182,6 @@ function toThreadAutomation(value: UnknownRecord | null): ThreadAutomation | nul
 	return {
 		threadId,
 		gmailThreadId: nullableStringValue(value.gmail_thread_id) ?? nullableStringValue(value.gmailThreadId),
-		enabled,
 		mode,
 		goalPrompt: stringValue(value.goal_prompt) ?? stringValue(value.goalPrompt) ?? "",
 		privateNotes: stringValue(value.private_notes) ?? stringValue(value.privateNotes) ?? "",
@@ -338,7 +340,7 @@ export class InboundAutomationService {
 		if (!threadId) return { status: "ignored", reason: "unmatched" };
 
 		const automation = toThreadAutomation(await this.#store.getThreadAutomation(threadId));
-		if (!automation?.enabled) return { status: "ignored", reason: "disabled" };
+		if (!automation || automation.mode === "none") return { status: "ignored", reason: "disabled" };
 
 		const claimed = await this.#store.claimProcessingReceipt(inbound.id, threadId);
 		if (!claimed) return { status: "duplicate", threadId };

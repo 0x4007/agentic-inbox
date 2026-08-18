@@ -21,8 +21,7 @@ import type {
 const AUTOSAVE_DELAY_MS = 650;
 
 export const DEFAULT_THREAD_AUTOMATION: ThreadAutomationUpdate = {
-	enabled: false,
-	mode: "draft",
+	mode: "none",
 	goalPrompt: "",
 	privateNotes: "",
 };
@@ -31,7 +30,6 @@ export function toThreadAutomationUpdate(
 	automation: ThreadAutomation,
 ): ThreadAutomationUpdate {
 	return {
-		enabled: automation.enabled,
 		mode: automation.mode,
 		goalPrompt: automation.goalPrompt,
 		privateNotes: automation.privateNotes,
@@ -289,15 +287,7 @@ export default function ThreadAutomationPanel({ threadId }: { threadId: string }
 						<p className="text-sm font-semibold text-kumo-default">Thread automation</p>
 						<p className="mt-0.5 text-xs text-kumo-subtle">Changes save automatically.</p>
 					</div>
-					<label className="flex cursor-pointer items-center gap-2 text-xs font-medium text-kumo-default">
-						<input
-							type="checkbox"
-							checked={form.enabled}
-							onChange={(event) => updateField("enabled", event.target.checked, true)}
-							aria-label="Watch this thread"
-						/>
-						Watch
-					</label>
+					<span className="text-xs font-medium text-kumo-success">Watching</span>
 				</div>
 				<div className="mt-3">
 					<SaveState status={saveStatus} error={saveError} />
@@ -316,12 +306,26 @@ export default function ThreadAutomationPanel({ threadId }: { threadId: string }
 			<div className="flex flex-col gap-5 px-4 py-4 xl:px-5">
 				<section>
 					<div className="flex items-center justify-between gap-3">
-						<label className="text-xs font-medium text-kumo-strong" htmlFor="automation-mode-draft">
-							Reply mode
+						<label className="text-xs font-medium text-kumo-strong" htmlFor="automation-mode-none">
+							Action on new email
 						</label>
-						<span className="text-xs text-kumo-subtle">When watched</span>
+						<span className="text-xs text-kumo-subtle">Explicit opt-in</span>
 					</div>
-					<div className="mt-2 grid grid-cols-2 rounded-lg bg-kumo-fill p-1" role="radiogroup" aria-label="Reply mode">
+					<div className="mt-2 grid grid-cols-3 rounded-lg bg-kumo-fill p-1" role="radiogroup" aria-label="Action on new email">
+						<button
+							id="automation-mode-none"
+							type="button"
+							role="radio"
+							aria-checked={form.mode === "none"}
+							onClick={() => updateField("mode", "none", true)}
+							className={`rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+								form.mode === "none"
+									? "bg-kumo-base text-kumo-default shadow-sm"
+									: "text-kumo-subtle hover:text-kumo-default"
+							}`}
+						>
+							No action
+						</button>
 						<button
 							id="automation-mode-draft"
 							type="button"
@@ -350,6 +354,11 @@ export default function ThreadAutomationPanel({ threadId }: { threadId: string }
 							Auto-send
 						</button>
 					</div>
+					{form.mode === "none" && (
+						<p className="mt-2 text-xs leading-relaxed text-kumo-subtle">
+							This thread is watched, but no reply will be created until you choose Draft or Auto-send.
+						</p>
+					)}
 					{form.mode === "auto" && (
 						<p className="mt-2 flex gap-1.5 text-xs leading-relaxed text-kumo-warning" role="status">
 							<WarningIcon size={15} weight="fill" className="mt-0.5 shrink-0" />

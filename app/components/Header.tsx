@@ -8,7 +8,6 @@ import {
 	ListIcon,
 	MagnifyingGlassIcon,
 	MoonIcon,
-	RobotIcon,
 	SunIcon,
 	XIcon,
 } from "@phosphor-icons/react";
@@ -24,7 +23,7 @@ export default function Header() {
 	const navigate = useNavigate();
 	const location = useLocation();
 	const [searchParams] = useSearchParams();
-	const { toggleSidebar, toggleAgentPanel, isAgentPanelOpen } = useUIStore();
+	const { toggleSidebar } = useUIStore();
 	const { colorMode, toggleColorMode } = useColorMode();
 
 	// Sync search input with URL query param so it stays populated
@@ -146,16 +145,6 @@ export default function Header() {
 						}
 						onClick={toggleColorMode}
 						aria-label={`Switch to ${colorMode === "dark" ? "light" : "dark"} mode`}
-					/>
-				</Tooltip>
-				<Tooltip content={isAgentPanelOpen ? "Hide agent panel" : "Show agent panel"} side="bottom" asChild>
-					<Button
-						variant={isAgentPanelOpen ? "secondary" : "ghost"}
-						shape="square"
-						icon={<RobotIcon size={20} />}
-						onClick={toggleAgentPanel}
-						aria-label="Toggle agent panel"
-						className="hidden lg:inline-flex"
 					/>
 				</Tooltip>
 				<Tooltip content="Settings" side="bottom" asChild>

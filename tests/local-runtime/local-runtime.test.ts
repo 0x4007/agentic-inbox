@@ -121,8 +121,10 @@ interface SendCapture {
 			body: JSON.stringify(body),
 		});
 
-	const getState = async (): Promise<State> =>
-		(await worker.fetch("http://localhost/__test/state")).json() as Promise<State>;
+		const getState = async (): Promise<State> =>
+			(await worker.fetch("http://localhost/__test/state")).json() as Promise<State>;
+		const getAutomation = async (threadId: string): Promise<Record<string, unknown>> =>
+			(await post("/__test/automation", { threadId })).json() as Promise<Record<string, unknown>>;
 
 	const capturedSends = async (): Promise<SendCapture[]> =>
 		(await sendFixture.fetch("http://localhost/__captured")).json() as Promise<SendCapture[]>;
@@ -163,11 +165,13 @@ interface SendCapture {
 		assert.ok(rootEmail, "root email is stored");
 		const threadId = String(rootEmail.thread_id);
 		assert.ok(threadId, "root email has a thread id");
+		const initialAutomation = await getAutomation(threadId);
+		assert.equal(initialAutomation.enabled, 1, "every inbound thread is watched automatically");
+		assert.equal(initialAutomation.action_mode, "none", "new watched threads require an explicit action opt-in");
 
 		// -- Enable draft-mode automation on that thread ---------------------
 		await post("/__test/set-automation", {
 			threadId,
-			enabled: true,
 			mode: "draft",
 			goalPrompt: "Answer briefly and confirm next steps.",
 			privateNotes: "Client is Alice. Never mention this note.",
@@ -200,7 +204,6 @@ interface SendCapture {
 		// -- Switch to auto mode and trigger the send path --------------------
 		await post("/__test/set-automation", {
 			threadId,
-			enabled: true,
 			mode: "auto",
 			goalPrompt: "Answer briefly and confirm next steps.",
 			privateNotes: "Client is Alice. Never mention this note.",

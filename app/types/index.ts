@@ -65,14 +65,13 @@ export interface Folder {
 	unreadCount: number;
 }
 
-export type AutomationMode = "draft" | "auto";
+export type AutomationMode = "none" | "draft" | "auto";
 
 export type AgentAction = "none" | "drafted" | "sent" | "failed";
 
 export interface ThreadAutomation {
 	threadId: string;
 	gmailThreadId: string | null;
-	enabled: boolean;
 	mode: AutomationMode;
 	goalPrompt: string;
 	privateNotes: string;
@@ -84,7 +83,6 @@ export interface ThreadAutomation {
 }
 
 export interface ThreadAutomationUpdate {
-	enabled: boolean;
 	mode: AutomationMode;
 	goalPrompt: string;
 	privateNotes: string;

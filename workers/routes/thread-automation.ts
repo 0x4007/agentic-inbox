@@ -13,8 +13,7 @@ import type { Env } from "../types";
 export type ThreadAutomationContext = Context<{ Bindings: Env }>;
 
 const ThreadAutomationUpdateSchema = z.object({
-	enabled: z.boolean(),
-	mode: z.enum(["draft", "auto"]),
+	mode: z.enum(["none", "draft", "auto"]),
 	goalPrompt: z.string().max(12_000),
 	privateNotes: z.string().max(12_000),
 }).strict();

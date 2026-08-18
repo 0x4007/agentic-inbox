@@ -54,6 +54,7 @@ export const attachments = sqliteTable("attachments", {
 export const threadAutomation = sqliteTable("thread_automation", {
 	thread_id: text("thread_id").primaryKey(), gmail_thread_id: text("gmail_thread_id"),
 	enabled: integer("enabled").notNull().default(0), mode: text("mode").notNull().default("draft"),
+	action_mode: text("action_mode").notNull().default("legacy"),
 	goal_prompt: text("goal_prompt").notNull().default(""), private_notes: text("private_notes").notNull().default(""),
 	last_processed_message_id: text("last_processed_message_id"), last_action: text("last_action").notNull().default("none"),
 	last_error: text("last_error"), created_at: text("created_at").notNull(), updated_at: text("updated_at").notNull(),

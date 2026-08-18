@@ -88,13 +88,10 @@ function stringField(row: unknown, key: string): string | null {
 	return typeof value === "string" && value ? value : null;
 }
 
-function booleanField(row: unknown, key: string, fallback: boolean): boolean {
-	if (!row || typeof row !== "object" || Array.isArray(row)) return fallback;
-	const value = (row as Record<string, unknown>)[key];
-	return value === true || value === 1 || value === "1";
-}
-
-function automationMode(row: unknown): "draft" | "auto" {
+function automationMode(row: unknown): "none" | "draft" | "auto" {
+	if (!row) return "none";
+	const enabled = (row as Record<string, unknown>).enabled;
+	if (!(enabled === true || enabled === 1 || enabled === "1")) return "none";
 	return stringField(row, "mode") === "auto" ? "auto" : "draft";
 }
 
@@ -133,7 +130,6 @@ async function retainGmailThreadIdentity(
 	await stub.upsertThreadAutomation({
 		threadId,
 		gmailThreadId,
-		enabled: booleanField(current, "enabled", false),
 		mode: automationMode(current),
 		goalPrompt: stringField(current, "goal_prompt") ?? "",
 		privateNotes: stringField(current, "private_notes") ?? "",

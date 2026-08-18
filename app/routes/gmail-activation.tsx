@@ -79,12 +79,11 @@ export default function GmailActivationRoute() {
 			const imported = await api.importGmailThread(id);
 			let update: ThreadAutomationUpdate = {
 				...DEFAULT_THREAD_AUTOMATION,
-				enabled: true,
 			};
 
 			try {
 				const existing = await api.getThreadAutomation(imported.threadId);
-				update = { ...toThreadAutomationUpdate(existing), enabled: true };
+				update = toThreadAutomationUpdate(existing);
 			} catch (error) {
 				if (!(error instanceof ApiError) || error.status !== 404) throw error;
 			}

@@ -103,6 +103,21 @@ interface AttachmentData {
 	disposition?: string | null;
 }
 
+function senderFromRawHeaders(rawHeaders: string | null | undefined): string | null {
+	if (!rawHeaders) return null;
+	try {
+		const headers = JSON.parse(rawHeaders) as Array<{ key?: unknown; name?: unknown; value?: unknown }>;
+		const from = headers.find((header) =>
+			String(header.key ?? header.name ?? "").toLowerCase() === "from",
+		)?.value;
+		if (typeof from !== "string") return null;
+		const address = from.match(/<([^<>\s]+@[^<>\s]+)>/)?.[1] ?? from.match(/[^\s<>]+@[^\s<>]+/)?.[0];
+		return address?.trim().toLowerCase() || null;
+	} catch {
+		return null;
+	}
+}
+
 export class MailboxDO extends DurableObject<Env> {
 	declare __DURABLE_OBJECT_BRAND: never;
 	db: ReturnType<typeof drizzle>;
@@ -149,12 +164,13 @@ export class MailboxDO extends DurableObject<Env> {
 		const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
 		params.push(limit, offset);
 		const result = [...this.ctx.storage.sql.exec(
-			`SELECT id, subject, sender, recipient, cc, bcc, date, read, starred, in_reply_to, email_references, thread_id, folder_id, SUBSTR(body, 1, 300) AS snippet FROM emails ${where} ORDER BY ${sortColumn} ${sortDirection === "ASC" ? "ASC" : "DESC"} LIMIT ?${params.length - 1} OFFSET ?${params.length}`,
+			`SELECT id, subject, sender, recipient, cc, bcc, date, read, starred, in_reply_to, email_references, thread_id, folder_id, raw_headers, SUBSTR(body, 1, 300) AS snippet FROM emails ${where} ORDER BY ${sortColumn} ${sortDirection === "ASC" ? "ASC" : "DESC"} LIMIT ?${params.length - 1} OFFSET ?${params.length}`,
 			...params,
 		)] as unknown as EmailData[];
 
 		return result.map((email) => ({
 			...email,
+			sender: senderFromRawHeaders((email as EmailData).raw_headers) ?? email.sender,
 			read: !!email.read,
 			starred: !!email.starred,
 		}));
@@ -250,7 +266,7 @@ export class MailboxDO extends DurableObject<Env> {
 				SELECT
 					lp.id, lp.subject, lp.sender, lp.recipient, lp.date,
 					lp.read, lp.starred, lp.thread_id, lp.folder_id,
-					lp.in_reply_to, lp.email_references,
+					lp.in_reply_to, lp.email_references, lp.raw_headers,
 					SUBSTR(lp.body, 1, 300) as snippet,
 					ds.thread_count, ds.thread_unread_count, ds.participants
 				FROM latest_per_group lp
@@ -264,11 +280,12 @@ export class MailboxDO extends DurableObject<Env> {
 			const rows = [...result];
 			return rows.map((row: any) => ({
 				...row,
+				sender: senderFromRawHeaders(row.raw_headers) ?? row.sender,
 				read: !!row.read,
 				starred: !!row.starred,
 				thread_count: row.thread_count || 1,
 				thread_unread_count: row.thread_unread_count || 0,
-				participants: row.participants || row.sender,
+				participants: senderFromRawHeaders(row.raw_headers) ?? row.sender,
 			}));
 		}
 
@@ -338,7 +355,7 @@ export class MailboxDO extends DurableObject<Env> {
 			SELECT
 				lif.id, lif.subject, lif.sender, lif.recipient, lif.date,
 				lif.read, lif.starred, lif.thread_id, lif.folder_id,
-				lif.in_reply_to, lif.email_references,
+				lif.in_reply_to, lif.email_references, lif.raw_headers,
 				SUBSTR(lif.body, 1, 300) as snippet,
 				cs.thread_count, cs.thread_unread_count, cs.participants,
 				CASE WHEN lmc.folder_id != (SELECT id FROM folders WHERE name = 'sent' LIMIT 1)
@@ -359,11 +376,12 @@ export class MailboxDO extends DurableObject<Env> {
 		const rows = [...result];
 		return rows.map((row: any) => ({
 			...row,
+			sender: senderFromRawHeaders(row.raw_headers) ?? row.sender,
 			read: !!row.read,
 			starred: !!row.starred,
 			thread_count: row.thread_count || 1,
 			thread_unread_count: row.thread_unread_count || 0,
-			participants: row.participants || row.sender,
+			participants: senderFromRawHeaders(row.raw_headers) ?? row.sender,
 			needs_reply: !!row.needs_reply,
 			has_draft: !!row.has_draft,
 		}));
@@ -479,6 +497,7 @@ export class MailboxDO extends DurableObject<Env> {
 
 		return emailRows.map((email) => ({
 			...email,
+			sender: senderFromRawHeaders(email.raw_headers) ?? email.sender,
 			read: !!email.read,
 			starred: !!email.starred,
 			attachments: attachmentsByEmail.get(email.id) || [],
@@ -874,13 +893,13 @@ export class MailboxDO extends DurableObject<Env> {
 		return ([...this.ctx.storage.sql.exec("SELECT * FROM thread_automation WHERE thread_id = ?1", threadId)][0] ?? null) as Record<string, unknown> | null;
 	}
 
-	async upsertThreadAutomation(input: { threadId: string; gmailThreadId?: string | null; enabled: boolean; mode: "draft" | "auto"; goalPrompt: string; privateNotes: string }) {
+	async upsertThreadAutomation(input: { threadId: string; gmailThreadId?: string | null; mode: "none" | "draft" | "auto"; goalPrompt: string; privateNotes: string }) {
 		const now = new Date().toISOString();
-		this.ctx.storage.sql.exec(`INSERT INTO thread_automation (thread_id, gmail_thread_id, enabled, mode, goal_prompt, private_notes, last_action, created_at, updated_at)
-			VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'none', ?7, ?7)
-			ON CONFLICT(thread_id) DO UPDATE SET gmail_thread_id=excluded.gmail_thread_id, enabled=excluded.enabled, mode=excluded.mode,
+		this.ctx.storage.sql.exec(`INSERT INTO thread_automation (thread_id, gmail_thread_id, enabled, mode, action_mode, goal_prompt, private_notes, last_action, created_at, updated_at)
+			VALUES (?1, ?2, 1, 'draft', ?3, ?4, ?5, 'none', ?6, ?6)
+			ON CONFLICT(thread_id) DO UPDATE SET gmail_thread_id=excluded.gmail_thread_id, enabled=excluded.enabled, mode=excluded.mode, action_mode=excluded.action_mode,
 			goal_prompt=excluded.goal_prompt, private_notes=excluded.private_notes, updated_at=excluded.updated_at`,
-			input.threadId, input.gmailThreadId ?? null, input.enabled ? 1 : 0, input.mode, input.goalPrompt, input.privateNotes, now);
+			input.threadId, input.gmailThreadId ?? null, input.mode, input.goalPrompt, input.privateNotes, now);
 		return this.getThreadAutomation(input.threadId);
 	}
 
